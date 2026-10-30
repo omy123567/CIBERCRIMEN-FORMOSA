@@ -1,0 +1,6 @@
+{
+  "name": "Sis.Pol. - Sistema de Gestión Policial y Operativa",
+  "description": "Plataforma integral para dependencias policiales: gestión de personal, expedientes y evidencias, casos falta de oficio, parque automotor, recargos y respaldos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

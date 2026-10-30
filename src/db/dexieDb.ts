@@ -1,0 +1,1133 @@
+import Dexie, { Table } from 'dexie';
+import {
+  Expediente,
+  Personal,
+  Movil,
+  Reparacion,
+  Recargo,
+  Charla,
+  Licencia,
+  DynamicCatalog,
+  DynamicField,
+  AttachmentRecord,
+  SgpBackupData,
+  InstitutionalConfig,
+  PersonaInvestigada,
+  SisPolUser,
+  SisPolDelegacion,
+  NumerarioSerie,
+  FolioRegistro
+} from '../types/sgp';
+import { initialSgpBackup, initialInstitutionalConfig } from './sgpInitialData';
+
+export class SisPolDatabase extends Dexie {
+  expedientes!: Table<Expediente, number>;
+  personal!: Table<Personal, number>;
+  moviles!: Table<Movil, number>;
+  reparaciones!: Table<Reparacion, number>;
+  recargos!: Table<Recargo, number>;
+  charlas!: Table<Charla, number>;
+  licencias!: Table<Licencia, number>;
+  personas!: Table<PersonaInvestigada, number>;
+  dynamicCatalogs!: Table<DynamicCatalog, number>;
+  dynamicFields!: Table<DynamicField, number>;
+  attachments!: Table<AttachmentRecord, string>;
+  settings!: Table<{ key: string; value: any }, string>;
+  users!: Table<SisPolUser, number>;
+  delegaciones!: Table<SisPolDelegacion, number>;
+  seriesNumerario!: Table<NumerarioSerie, number>;
+  foliosNumerario!: Table<FolioRegistro, number>;
+
+  constructor() {
+    super('SisPolDB_Formosa');
+
+    this.version(1).stores({
+      expedientes: '++id, anio, nroExpediente, estado, tipoRequerimiento, juzgado, fechaIngreso, fechaVencimiento, delegacionId',
+      personal: '++id, jerarquia, apellidoNombre, dni, grupo, disponible, delegacionId',
+      moviles: '++id, identificador, dominio, condicion, delegacionId',
+      reparaciones: '++id, movilId, fecha, delegacionId',
+      recargos: '++id, personalId, fecha, delegacionId',
+      charlas: '++id, fecha, localidad, delegacionId',
+      licencias: '++id, personalId, anioPeriodo, tipoLicencia, delegacionId',
+      personas: '++id, dni, apellidoNombre, delegacionId',
+      dynamicCatalogs: '++id, category, value, delegacionId',
+      dynamicFields: '++id, entity, fieldKey',
+      attachments: 'key, mimeType, name, updatedAt',
+      settings: 'key'
+    });
+
+    this.version(2).stores({
+      expedientes: '++id, anio, nroExpediente, estado, tipoRequerimiento, juzgado, fechaIngreso, fechaVencimiento, delegacionId',
+      personal: '++id, jerarquia, apellidoNombre, dni, grupo, disponible, delegacionId',
+      moviles: '++id, identificador, dominio, condicion, delegacionId',
+      reparaciones: '++id, movilId, fecha, delegacionId',
+      recargos: '++id, personalId, fecha, delegacionId',
+      charlas: '++id, fecha, localidad, delegacionId',
+      licencias: '++id, personalId, anioPeriodo, tipoLicencia, delegacionId',
+      personas: '++id, dni, apellidoNombre, delegacionId',
+      dynamicCatalogs: '++id, category, value, delegacionId',
+      dynamicFields: '++id, entity, fieldKey',
+      attachments: 'key, mimeType, name, updatedAt',
+      settings: 'key'
+    });
+
+    this.version(3).stores({
+      expedientes: '++id, anio, nroExpediente, estado, tipoRequerimiento, juzgado, fechaIngreso, fechaVencimiento, delegacionId',
+      personal: '++id, jerarquia, apellidoNombre, dni, grupo, disponible, delegacionId',
+      moviles: '++id, identificador, dominio, condicion, delegacionId',
+      reparaciones: '++id, movilId, fecha, delegacionId',
+      recargos: '++id, personalId, fecha, delegacionId',
+      charlas: '++id, fecha, localidad, delegacionId',
+      licencias: '++id, personalId, anioPeriodo, tipoLicencia, delegacionId',
+      personas: '++id, dni, apellidoNombre, delegacionId',
+      dynamicCatalogs: '++id, category, value, delegacionId',
+      dynamicFields: '++id, entity, fieldKey',
+      attachments: 'key, mimeType, name, updatedAt',
+      settings: 'key',
+      users: '++id, &username, email, rol, delegacionId',
+      delegaciones: '++id, &codigo, nombre'
+    });
+
+    this.version(4).stores({
+      expedientes: '++id, anio, nroExpediente, estado, tipoRequerimiento, juzgado, fechaIngreso, fechaVencimiento, delegacionId',
+      personal: '++id, jerarquia, apellidoNombre, dni, grupo, disponible, delegacionId',
+      moviles: '++id, identificador, dominio, condicion, delegacionId',
+      reparaciones: '++id, movilId, fecha, delegacionId',
+      recargos: '++id, personalId, fecha, delegacionId',
+      charlas: '++id, fecha, localidad, delegacionId',
+      licencias: '++id, personalId, anioPeriodo, tipoLicencia, delegacionId',
+      personas: '++id, dni, apellidoNombre, delegacionId',
+      dynamicCatalogs: '++id, category, value, delegacionId',
+      dynamicFields: '++id, entity, fieldKey',
+      attachments: 'key, mimeType, name, updatedAt',
+      settings: 'key',
+      users: '++id, &username, email, rol, delegacionId',
+      delegaciones: '++id, &codigo, nombre',
+      seriesNumerario: '++id, nombre, prefijo, anio, delegacionId',
+      foliosNumerario: '++id, serieId, numero, rangoId, delegacionId, fecha, destinatario, tipoDocumento'
+    });
+  }
+}
+
+
+
+export const db = new SisPolDatabase();
+
+class SgpManager {
+  private isInitialized = false;
+  private subscribers: Set<() => void> = new Set();
+
+  public subscribe(cb: () => void): () => void {
+    this.subscribers.add(cb);
+    return () => this.subscribers.delete(cb);
+  }
+
+  public notify() {
+    this.subscribers.forEach((cb) => {
+      try {
+        cb();
+      } catch (err) {
+        console.error('Error notifying subscriber:', err);
+      }
+    });
+  }
+
+  public async initialize(): Promise<void> {
+    if (this.isInitialized) return;
+
+    try {
+      await db.open();
+      const count = await db.expedientes.count();
+      if (count === 0) {
+        // Seed initial data
+        await this.seedInitial();
+      } else {
+        // Verify personas count
+        const pCount = await db.personas.count();
+        if (pCount === 0 && initialSgpBackup.personas?.length) {
+          await db.personas.bulkAdd(initialSgpBackup.personas);
+        }
+      }
+
+      // Ensure default delegations exist
+      const delCount = await db.delegaciones.count();
+      if (delCount === 0) {
+        await this.seedDefaultDelegaciones();
+      }
+
+      // Ensure default users exist
+      const userCount = await db.users.count();
+      if (userCount === 0) {
+        await this.seedDefaultUsers();
+      }
+
+      // Ensure default numerario series exist
+      const seriesCount = await db.seriesNumerario.count();
+      if (seriesCount === 0) {
+        await this.seedDefaultNumerario();
+      }
+
+      this.isInitialized = true;
+
+      // Setup synchronization with central SQLite server
+      if (!this.hooksConfigured) {
+        this.setupServerSyncHooks();
+        this.hooksConfigured = true;
+      }
+
+      // Initial pull from central SQLite server
+      await this.syncWithServer();
+    } catch (err) {
+      console.error('Failed to open Dexie database:', err);
+    }
+  }
+
+  private hooksConfigured = false;
+
+  public async syncWithServer(): Promise<boolean> {
+    try {
+      const res = await fetch('/api/sync/all');
+      if (!res.ok) return false;
+      const data = await res.json();
+
+      await db.transaction('rw', [
+        db.expedientes,
+        db.personal,
+        db.moviles,
+        db.reparaciones,
+        db.recargos,
+        db.charlas,
+        db.licencias,
+        db.personas,
+        db.dynamicCatalogs,
+        db.delegaciones,
+        db.seriesNumerario,
+        db.foliosNumerario
+      ], async () => {
+        if (data.expedientes && Array.isArray(data.expedientes)) {
+          await db.expedientes.clear();
+          await db.expedientes.bulkAdd(data.expedientes);
+        }
+        if (data.personal && Array.isArray(data.personal)) {
+          await db.personal.clear();
+          await db.personal.bulkAdd(data.personal);
+        }
+        if (data.moviles && Array.isArray(data.moviles)) {
+          await db.moviles.clear();
+          await db.moviles.bulkAdd(data.moviles);
+        }
+        if (data.reparaciones && Array.isArray(data.reparaciones)) {
+          await db.reparaciones.clear();
+          await db.reparaciones.bulkAdd(data.reparaciones);
+        }
+        if (data.recargos && Array.isArray(data.recargos)) {
+          await db.recargos.clear();
+          await db.recargos.bulkAdd(data.recargos);
+        }
+        if (data.charlas && Array.isArray(data.charlas)) {
+          await db.charlas.clear();
+          await db.charlas.bulkAdd(data.charlas);
+        }
+        if (data.licencias && Array.isArray(data.licencias)) {
+          await db.licencias.clear();
+          await db.licencias.bulkAdd(data.licencias);
+        }
+        if (data.personas && Array.isArray(data.personas)) {
+          await db.personas.clear();
+          await db.personas.bulkAdd(data.personas);
+        }
+        if (data.dynamicCatalogs && Array.isArray(data.dynamicCatalogs)) {
+          await db.dynamicCatalogs.clear();
+          await db.dynamicCatalogs.bulkAdd(data.dynamicCatalogs);
+        }
+        if (data.delegaciones && Array.isArray(data.delegaciones)) {
+          await db.delegaciones.clear();
+          await db.delegaciones.bulkAdd(data.delegaciones);
+        }
+        if (data.seriesNumerario && Array.isArray(data.seriesNumerario)) {
+          await db.seriesNumerario.clear();
+          await db.seriesNumerario.bulkAdd(data.seriesNumerario);
+        }
+        if (data.foliosNumerario && Array.isArray(data.foliosNumerario)) {
+          await db.foliosNumerario.clear();
+          await db.foliosNumerario.bulkAdd(data.foliosNumerario);
+        }
+      });
+
+      // Also sync users
+      try {
+        const uRes = await fetch('/api/users');
+        if (uRes.ok) {
+          const uList = await uRes.json();
+          if (Array.isArray(uList) && uList.length > 0) {
+            await db.users.clear();
+            await db.users.bulkAdd(uList);
+          }
+        }
+      } catch {
+        // ignore offline users pull
+      }
+
+      this.notify();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private setupServerSyncHooks() {
+    if (typeof window === 'undefined') return;
+
+    const sendMutation = (endpoint: string, method: string, body?: any) => {
+      fetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined
+      }).catch(() => {});
+    };
+
+    // Expedientes
+    db.expedientes.hook('creating', (_primKey, obj) => {
+      sendMutation('/api/expedientes', 'POST', obj);
+    });
+    db.expedientes.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/expedientes/${primKey}`, 'PUT', { ...obj, ...modifications });
+    });
+    db.expedientes.hook('deleting', (primKey) => {
+      sendMutation(`/api/expedientes/${primKey}`, 'DELETE');
+    });
+
+    // Personal
+    db.personal.hook('creating', (_primKey, obj) => {
+      sendMutation('/api/personal', 'POST', obj);
+    });
+    db.personal.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/personal/${primKey}`, 'PUT', { ...obj, ...modifications });
+    });
+    db.personal.hook('deleting', (primKey) => {
+      sendMutation(`/api/personal/${primKey}`, 'DELETE');
+    });
+
+    // Moviles
+    db.moviles.hook('creating', (_primKey, obj) => {
+      sendMutation('/api/moviles', 'POST', obj);
+    });
+    db.moviles.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/moviles/${primKey}`, 'PUT', { ...obj, ...modifications });
+    });
+    db.moviles.hook('deleting', (primKey) => {
+      sendMutation(`/api/moviles/${primKey}`, 'DELETE');
+    });
+
+    // Folios
+    db.foliosNumerario.hook('creating', (_primKey, obj) => {
+      sendMutation('/api/numerario/folios', 'POST', obj);
+    });
+    db.foliosNumerario.hook('deleting', (primKey) => {
+      sendMutation(`/api/numerario/folios/${primKey}`, 'DELETE');
+    });
+
+    // Periodical background pull every 20 seconds
+    setInterval(() => {
+      this.syncWithServer();
+    }, 20000);
+
+    // Pull immediately when user refocuses window
+    window.addEventListener('focus', () => {
+      this.syncWithServer();
+    });
+  }
+
+
+  public async seedDefaultDelegaciones(): Promise<void> {
+    const defaultDelegaciones: SisPolDelegacion[] = [
+      {
+        id: 1,
+        nombre: 'Delegación Policía Científica Laguna Blanca',
+        codigo: 'DPC-LB',
+        ciudad: 'Laguna Blanca'
+      },
+      {
+        id: 2,
+        nombre: 'Delegación Policía Científica Clorinda',
+        codigo: 'DPC-CLO',
+        ciudad: 'Clorinda'
+      },
+      {
+        id: 3,
+        nombre: 'Dirección General Policía Científica - Capital',
+        codigo: 'DGPC-CAP',
+        ciudad: 'Formosa Capital'
+      },
+      {
+        id: 4,
+        nombre: 'Delegación Policía Científica Las Lomitas',
+        codigo: 'DPC-LOM',
+        ciudad: 'Las Lomitas'
+      },
+      {
+        id: 5,
+        nombre: 'Delegación Policía Científica Pirané',
+        codigo: 'DPC-PIR',
+        ciudad: 'Pirané'
+      }
+    ];
+    await db.delegaciones.bulkAdd(defaultDelegaciones);
+  }
+
+  public async seedDefaultUsers(): Promise<void> {
+    const allModules = [
+      'dashboard',
+      'expedientes',
+      'numerario',
+      'ppi',
+      'personas',
+      'personal',
+      'licencias',
+      'moviles',
+      'recargos',
+      'charlas',
+      'membrete',
+      'catalogos',
+      'respaldos',
+      'usuarios',
+      'modulos'
+    ];
+
+    const defaultUsers: SisPolUser[] = [
+      {
+        id: 1,
+        nombreApellido: 'Superintendente Forense D.G.P.C.',
+        email: 'superadmin.dgpc@formosa.gov.ar',
+        username: 'superadmin',
+        password: 'admin123',
+        rol: 'superusuario',
+        delegacionId: 1,
+        canDelete: true,
+        allowedModules: allModules,
+        allowedDelegacionIds: [1, 2, 3, 4, 5],
+        canAdminModules: true
+      },
+      {
+        id: 2,
+        nombreApellido: 'Crio. Insp. Lic. Gómez, Roberto M.',
+        email: 'pol.delgcrimlagunablanca@formosa.gov.ar',
+        username: 'admin.lb',
+        password: 'policia2026',
+        rol: 'Administrador',
+        delegacionId: 1,
+        canDelete: true,
+        allowedModules: allModules.filter(m => m !== 'modulos'),
+        allowedDelegacionIds: [1],
+        canAdminModules: false
+      },
+      {
+        id: 3,
+        nombreApellido: 'Cabo 1° Sosa, Andrea Beatríz',
+        email: 'andrea.sosa@formosa.gov.ar',
+        username: 'operador.lb',
+        password: 'operador123',
+        rol: 'Operador',
+        delegacionId: 1,
+        canDelete: false,
+        allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas'],
+        allowedDelegacionIds: [1],
+        canAdminModules: false
+      },
+      {
+        id: 4,
+        nombreApellido: 'Comisario Villamayor, Carlos',
+        email: 'pol.delgcrimclorinda@formosa.gov.ar',
+        username: 'admin.clorinda',
+        password: 'policia2026',
+        rol: 'Administrador',
+        delegacionId: 2,
+        canDelete: true,
+        allowedModules: allModules.filter(m => m !== 'modulos'),
+        allowedDelegacionIds: [2],
+        canAdminModules: false
+      }
+    ];
+
+    await db.users.bulkAdd(defaultUsers);
+  }
+
+  public async seedInitial(): Promise<void> {
+    await db.transaction('rw', [
+      db.expedientes,
+      db.personal,
+      db.moviles,
+      db.reparaciones,
+      db.recargos,
+      db.charlas,
+      db.licencias,
+      db.personas,
+      db.dynamicCatalogs,
+      db.dynamicFields,
+      db.settings,
+      db.delegaciones,
+      db.users
+    ], async () => {
+      await db.expedientes.clear();
+      await db.personal.clear();
+      await db.moviles.clear();
+      await db.reparaciones.clear();
+      await db.recargos.clear();
+      await db.charlas.clear();
+      await db.licencias.clear();
+      await db.personas.clear();
+      await db.dynamicCatalogs.clear();
+      await db.dynamicFields.clear();
+      await db.delegaciones.clear();
+      await db.users.clear();
+
+      await db.expedientes.bulkAdd(initialSgpBackup.expedientes);
+      await db.personal.bulkAdd(initialSgpBackup.personal);
+      await db.moviles.bulkAdd(initialSgpBackup.moviles);
+      await db.reparaciones.bulkAdd(initialSgpBackup.reparaciones);
+      await db.recargos.bulkAdd(initialSgpBackup.recargos);
+      await db.charlas.bulkAdd(initialSgpBackup.charlas);
+      await db.licencias.bulkAdd(initialSgpBackup.licencias);
+      if (initialSgpBackup.personas?.length) {
+        await db.personas.bulkAdd(initialSgpBackup.personas);
+      }
+      await db.dynamicCatalogs.bulkAdd(initialSgpBackup.dynamicCatalogs);
+      await db.settings.put({ key: 'institutionalConfig', value: initialInstitutionalConfig });
+      await db.settings.put({ key: 'institutionalConfig_1', value: initialInstitutionalConfig });
+
+      await this.seedDefaultDelegaciones();
+      await this.seedDefaultUsers();
+    });
+    this.notify();
+  }
+
+  // --- Attachments / Images in IndexedDB ---
+  public async saveAttachment(key: string, dataUrl: string, name: string, mimeType = 'image/jpeg'): Promise<string> {
+    await db.attachments.put({
+      key,
+      dataUrl,
+      mimeType,
+      name,
+      updatedAt: new Date().toISOString()
+    });
+    return key;
+  }
+
+  public async getAttachment(key: string): Promise<string | undefined> {
+    if (!key) return undefined;
+    if (key.startsWith('data:image')) return key;
+    const item = await db.attachments.get(key);
+    return item?.dataUrl;
+  }
+
+  // --- Settings per Delegation ---
+  public async getInstitutionalConfig(delegacionId: number = 1): Promise<InstitutionalConfig> {
+    const key = `institutionalConfig_${delegacionId}`;
+    const specificItem = await db.settings.get(key);
+    if (specificItem?.value) {
+      return specificItem.value;
+    }
+
+    if (delegacionId === 1) {
+      const generalItem = await db.settings.get('institutionalConfig');
+      const base = generalItem?.value || initialInstitutionalConfig;
+      return base;
+    }
+
+    // Generate specific customized config for other delegations
+    const del = await db.delegaciones.get(delegacionId);
+    const delNombre = del?.nombre || `Delegación Policía Científica ${del?.ciudad || ''}`;
+    const delCodigo = del?.codigo || 'DPC';
+    const ciudad = del?.ciudad || 'Formosa';
+
+    const customConfig: InstitutionalConfig = {
+      ...initialInstitutionalConfig,
+      delegacionId,
+      subdivision: delNombre.toUpperCase(),
+      unitLocation: `${ciudad} - Provincia de Formosa`,
+      headerTitle: `POLICÍA DE LA PROVINCIA DE FORMOSA - ${delNombre.toUpperCase()}`,
+      siglasDependencia: delCodigo,
+      textoPiePaginaPdf: `Documento Reservado de Uso Oficial Interno - ${delNombre}.`,
+      headerLines: [
+        {
+          id: 'line-1',
+          text: 'POLICÍA DE LA PROVINCIA DE FORMOSA',
+          bold: true,
+          underline: false,
+          size: 'XL',
+          color: 'AZUL_POLICIAL'
+        },
+        {
+          id: 'line-2',
+          text: 'DIRECCIÓN GENERAL POLICÍA CIENTÍFICA',
+          bold: true,
+          underline: false,
+          size: 'LG',
+          color: 'AZUL_POLICIAL'
+        },
+        {
+          id: 'line-3',
+          text: delNombre.toUpperCase(),
+          bold: true,
+          underline: true,
+          size: 'LG',
+          color: 'AZUL_POLICIAL'
+        },
+        {
+          id: 'line-4',
+          text: `${ciudad} - Provincia de Formosa`,
+          bold: false,
+          underline: false,
+          size: 'SM',
+          color: 'GRIS_SUAVE'
+        }
+      ]
+    };
+
+    await db.settings.put({ key, value: customConfig });
+    return customConfig;
+  }
+
+  public async saveInstitutionalConfig(config: InstitutionalConfig, delegacionId: number = 1): Promise<void> {
+    const key = `institutionalConfig_${delegacionId}`;
+    await db.settings.put({ key, value: config });
+    if (delegacionId === 1) {
+      await db.settings.put({ key: 'institutionalConfig', value: config });
+    }
+    this.notify();
+  }
+
+  // --- Multi-User Management ---
+  public async getUsers(): Promise<SisPolUser[]> {
+    await this.initialize();
+    return await db.users.toArray();
+  }
+
+  public async addUser(user: SisPolUser): Promise<number> {
+    await this.initialize();
+    const id = await db.users.add(user);
+    this.notify();
+    return id;
+  }
+
+  public async updateUser(id: number, changes: Partial<SisPolUser>): Promise<void> {
+    await this.initialize();
+    await db.users.update(id, changes);
+    this.notify();
+  }
+
+  public async deleteUser(id: number): Promise<void> {
+    await this.initialize();
+    await db.users.delete(id);
+    this.notify();
+  }
+
+  public async authenticate(username: string, pass: string): Promise<SisPolUser | null> {
+    await this.initialize();
+    const u = await db.users.where('username').equals(username.trim()).first();
+    if (u && u.password === pass) {
+      return u;
+    }
+    return null;
+  }
+
+  public async changePassword(userId: number, newPass: string): Promise<boolean> {
+    await this.initialize();
+    const u = await db.users.get(userId);
+    if (!u) return false;
+    await db.users.update(userId, { password: newPass });
+    this.notify();
+    return true;
+  }
+
+  // --- Delegaciones Management ---
+  public async getDelegaciones(): Promise<SisPolDelegacion[]> {
+    await this.initialize();
+    return await db.delegaciones.toArray();
+  }
+
+  public async addDelegacion(del: SisPolDelegacion): Promise<number> {
+    await this.initialize();
+    const id = await db.delegaciones.add(del);
+    this.notify();
+    return id;
+  }
+
+  public async updateDelegacion(id: number, changes: Partial<SisPolDelegacion>): Promise<void> {
+    await this.initialize();
+    await db.delegaciones.update(id, changes);
+    this.notify();
+  }
+
+  // --- Independent Numbering for Expedientes ---
+  public async getNextExpedienteNumber(delegacionId: number, anio: string = '2026'): Promise<string> {
+    const exps = await db.expedientes
+      .where('delegacionId')
+      .equals(delegacionId)
+      .toArray();
+
+    const anioExps = exps.filter(e => e.anio === anio);
+    let maxNum = 0;
+    anioExps.forEach(e => {
+      const match = e.nroExpediente.match(/\d+/);
+      if (match) {
+        const n = parseInt(match[0], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+
+    const next = maxNum + 1;
+    return `${next}/${anio.slice(-2)}`;
+  }
+
+
+  // --- Export Full Backup matching backup_data.json ---
+  public async getBackupData(): Promise<SgpBackupData> {
+    await this.initialize();
+    const personal = await db.personal.toArray();
+    const expedientes = await db.expedientes.toArray();
+    const dynamicFields = await db.dynamicFields.toArray();
+    const dynamicCatalogs = await db.dynamicCatalogs.toArray();
+    const recargos = await db.recargos.toArray();
+    const charlas = await db.charlas.toArray();
+    const moviles = await db.moviles.toArray();
+    const reparaciones = await db.reparaciones.toArray();
+    const licencias = await db.licencias.toArray();
+    const personas = await db.personas.toArray();
+
+    return {
+      personal,
+      expedientes,
+      dynamicFields,
+      dynamicCatalogs,
+      recargos,
+      charlas,
+      moviles,
+      reparaciones,
+      licencias,
+      personas
+    };
+  }
+
+  // --- Restore from SgpBackupData ---
+  public async restoreBackupData(data: SgpBackupData): Promise<void> {
+    if (!data.personal || !data.expedientes) {
+      throw new Error('Estructura de respaldo no válida. Debe contener personal y expedientes.');
+    }
+
+    await db.transaction('rw', [
+      db.expedientes,
+      db.personal,
+      db.moviles,
+      db.reparaciones,
+      db.recargos,
+      db.charlas,
+      db.licencias,
+      db.personas,
+      db.dynamicCatalogs,
+      db.dynamicFields
+    ], async () => {
+      await db.personal.clear();
+      await db.expedientes.clear();
+      await db.moviles.clear();
+      await db.reparaciones.clear();
+      await db.recargos.clear();
+      await db.charlas.clear();
+      await db.licencias.clear();
+      await db.personas.clear();
+      await db.dynamicCatalogs.clear();
+      await db.dynamicFields.clear();
+
+      if (data.personal?.length) await db.personal.bulkAdd(data.personal);
+      if (data.expedientes?.length) await db.expedientes.bulkAdd(data.expedientes);
+      if (data.moviles?.length) await db.moviles.bulkAdd(data.moviles);
+      if (data.reparaciones?.length) await db.reparaciones.bulkAdd(data.reparaciones);
+      if (data.recargos?.length) await db.recargos.bulkAdd(data.recargos);
+      if (data.charlas?.length) await db.charlas.bulkAdd(data.charlas);
+      if (data.licencias?.length) await db.licencias.bulkAdd(data.licencias);
+      if (data.personas?.length) await db.personas.bulkAdd(data.personas);
+      if (data.dynamicCatalogs?.length) await db.dynamicCatalogs.bulkAdd(data.dynamicCatalogs);
+      if (data.dynamicFields?.length) await db.dynamicFields.bulkAdd(data.dynamicFields);
+    });
+
+    this.notify();
+  }
+
+  // --- Personas Investigadas / Imputadas Helpers ---
+  public async findPersonaByDni(dni: string): Promise<PersonaInvestigada | undefined> {
+    const clean = dni.trim().replace(/\D/g, '');
+    if (!clean) return undefined;
+    return await db.personas.where('dni').equals(clean).first();
+  }
+
+  public async upsertPersona(persona: PersonaInvestigada): Promise<number> {
+    const cleanDni = persona.dni.trim().replace(/\D/g, '');
+    const cleanName = persona.apellidoNombre.trim();
+    if (!cleanDni && !cleanName) return 0;
+
+    let existing = cleanDni ? await db.personas.where('dni').equals(cleanDni).first() : undefined;
+    if (existing && existing.id) {
+      await db.personas.update(existing.id, {
+        apellidoNombre: cleanName || existing.apellidoNombre,
+        observaciones: persona.observaciones || existing.observaciones,
+        expedientesVinculados: Array.from(new Set([
+          ...(existing.expedientesVinculados || []),
+          ...(persona.expedientesVinculados || [])
+        ]))
+      });
+      return existing.id;
+    } else {
+      const newId = await db.personas.add({
+        ...persona,
+        dni: cleanDni,
+        apellidoNombre: cleanName,
+        fechaRegistro: persona.fechaRegistro || new Date().toLocaleDateString('es-AR'),
+        delegacionId: 1
+      });
+      return newId;
+    }
+  }
+
+  // --- Combinar Expedientes Registrados y Depuración ---
+  public async combineExpedientes(
+    sourceIds: number[],
+    consolidatedCase: Omit<Expediente, 'id'>,
+    personsToSave: PersonaInvestigada[] = []
+  ): Promise<number> {
+    return await db.transaction('rw', [db.expedientes, db.personas], async () => {
+      // 1. Insert single consolidated case
+      const createdId = await db.expedientes.add(consolidatedCase);
+
+      // 2. Depurate: Delete source cases from database to prevent redundant records
+      await db.expedientes.bulkDelete(sourceIds);
+
+      // 3. Upsert unified persons
+      for (const p of personsToSave) {
+        if (p.dni || p.apellidoNombre) {
+          const expRef = `${consolidatedCase.nroExpediente}/${consolidatedCase.anio}`;
+          const existing = p.dni ? await db.personas.where('dni').equals(p.dni.replace(/\D/g, '')).first() : undefined;
+          if (existing && existing.id) {
+            const vinculados = Array.from(new Set([...(existing.expedientesVinculados || []), expRef]));
+            await db.personas.update(existing.id, { expedientesVinculados: vinculados });
+          } else {
+            await db.personas.add({
+              ...p,
+              fechaRegistro: new Date().toLocaleDateString('es-AR'),
+              expedientesVinculados: [expRef],
+              delegacionId: 1
+            });
+          }
+        }
+      }
+
+      this.notify();
+      return createdId;
+    });
+  }
+
+  // =========================================================================
+  // --- Módulo de Numerario y Control de Folios ---
+  // =========================================================================
+
+  public async seedDefaultNumerario(delegacionId: number = 1): Promise<void> {
+    const defaultSeries: NumerarioSerie[] = [
+      {
+        nombre: 'Oficio Jefatura',
+        prefijo: 'OF-JEF',
+        anio: '2026',
+        color: 'blue',
+        limiteFolios: 1000,
+        columnas: 20,
+        delegacionId,
+        descripcion: 'Numerario correlativo para oficios emitidos por Jefatura de Delegación',
+        createdAt: new Date().toISOString()
+      },
+      {
+        nombre: 'Oficio Vicedirección',
+        prefijo: 'OF-VICE',
+        anio: '2026',
+        color: 'indigo',
+        limiteFolios: 1000,
+        columnas: 20,
+        delegacionId,
+        descripcion: 'Oficios y comunicaciones de Segunda Jefatura / Subdirección',
+        createdAt: new Date().toISOString()
+      },
+      {
+        nombre: 'Memorándums Internos',
+        prefijo: 'MEMO',
+        anio: '2026',
+        color: 'emerald',
+        limiteFolios: 1000,
+        columnas: 20,
+        delegacionId,
+        descripcion: 'Memorándums de afectación, comisión y servicios internos',
+        createdAt: new Date().toISOString()
+      },
+      {
+        nombre: 'Expedientes y Actuaciones',
+        prefijo: 'EXP',
+        anio: '2026',
+        color: 'amber',
+        limiteFolios: 1000,
+        columnas: 20,
+        delegacionId,
+        descripcion: 'Numerario de expedientes administrativos y judiciales',
+        createdAt: new Date().toISOString()
+      },
+      {
+        nombre: 'Circulares y Radiomensajes',
+        prefijo: 'CIRC',
+        anio: '2026',
+        color: 'purple',
+        limiteFolios: 1000,
+        columnas: 20,
+        delegacionId,
+        descripcion: 'Circulares informativas y radiomensajes generales',
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+    const insertedSeriesIds: number[] = [];
+    for (const s of defaultSeries) {
+      const id = await db.seriesNumerario.add(s);
+      insertedSeriesIds.push(id);
+    }
+
+    // Seed sample initial folios in first serie (Oficio Jefatura)
+    const serieJefId = insertedSeriesIds[0];
+    if (serieJefId) {
+      const initialFolios: Omit<FolioRegistro, 'id'>[] = [
+        {
+          serieId: serieJefId,
+          numero: 1,
+          caratula: 'Oficio Jefatura N° 01/2026',
+          tipoDocumento: 'Oficio Judicial',
+          asunto: 'Remisión de Informe Pericial Balístico en Causa N° 121/26',
+          destinatario: 'Juzgado de Instrucción N° 1 - Clorinda',
+          solicitante: 'Crio. Insp. Gómez, Roberto',
+          observaciones: 'Entregado con nota de elevación y firma de recibido.',
+          fecha: '15/01/2026',
+          hora: '09:30',
+          usuarioAsigno: 'admin.lb',
+          delegacionId
+        },
+        {
+          serieId: serieJefId,
+          numero: 2,
+          caratula: 'Oficio Jefatura N° 02/2026',
+          tipoDocumento: 'Oficio Judicial',
+          asunto: 'Solicitud de Resguardo Fílmico de Cámaras de Seguridad en Vía Pública',
+          destinatario: 'Municipalidad de Laguna Blanca',
+          solicitante: 'Of. Ppal. Fernández, Esteban',
+          observaciones: 'Expediente preliminar por ilícito contra la propiedad.',
+          fecha: '20/01/2026',
+          hora: '11:15',
+          usuarioAsigno: 'admin.lb',
+          delegacionId
+        },
+        {
+          serieId: serieJefId,
+          numero: 3,
+          caratula: 'Oficio Jefatura N° 03/2026',
+          tipoDocumento: 'Comunicación Oficial',
+          asunto: 'Informe Técnico de Extracción Forense Celular UFED con Hash SHA-256',
+          destinatario: 'Fiscalía de Instrucción y Correccional',
+          solicitante: 'Of. Ppal. Fernández, Esteban',
+          observaciones: 'Evidencia resguardada en sobre lacrado con precinto de seguridad.',
+          fecha: '28/01/2026',
+          hora: '10:45',
+          usuarioAsigno: 'admin.lb',
+          delegacionId
+        },
+        // Range folios 10 to 13
+        {
+          serieId: serieJefId,
+          numero: 10,
+          rangoId: 'rng-sample-1',
+          rangoInicio: 10,
+          rangoFin: 13,
+          caratula: 'Oficio Jefatura N° 10/2026 a 13/2026 (Bloque)',
+          tipoDocumento: 'Expediente Extenso',
+          asunto: 'Expediente Completo y Anexos Periciales de Ciberdelito (Piezas 1 a 4)',
+          destinatario: 'Juzgado Federal N° 1 de Formosa',
+          solicitante: 'D.G.P.C. Formosa',
+          observaciones: 'Rango continuo de 4 folios asignados a la misma causa judicial.',
+          fecha: '05/02/2026',
+          hora: '08:20',
+          usuarioAsigno: 'superadmin',
+          delegacionId
+        },
+        {
+          serieId: serieJefId,
+          numero: 11,
+          rangoId: 'rng-sample-1',
+          rangoInicio: 10,
+          rangoFin: 13,
+          caratula: 'Oficio Jefatura N° 10/2026 a 13/2026 (Bloque)',
+          tipoDocumento: 'Expediente Extenso',
+          asunto: 'Expediente Completo y Anexos Periciales de Ciberdelito (Pieza 2)',
+          destinatario: 'Juzgado Federal N° 1 de Formosa',
+          solicitante: 'D.G.P.C. Formosa',
+          observaciones: 'Rango continuo de 4 folios asignados a la misma causa judicial.',
+          fecha: '05/02/2026',
+          hora: '08:20',
+          usuarioAsigno: 'superadmin',
+          delegacionId
+        },
+        {
+          serieId: serieJefId,
+          numero: 12,
+          rangoId: 'rng-sample-1',
+          rangoInicio: 10,
+          rangoFin: 13,
+          caratula: 'Oficio Jefatura N° 10/2026 a 13/2026 (Bloque)',
+          tipoDocumento: 'Expediente Extenso',
+          asunto: 'Expediente Completo y Anexos Periciales de Ciberdelito (Pieza 3)',
+          destinatario: 'Juzgado Federal N° 1 de Formosa',
+          solicitante: 'D.G.P.C. Formosa',
+          observaciones: 'Rango continuo de 4 folios asignados a la misma causa judicial.',
+          fecha: '05/02/2026',
+          hora: '08:20',
+          usuarioAsigno: 'superadmin',
+          delegacionId
+        },
+        {
+          serieId: serieJefId,
+          numero: 13,
+          rangoId: 'rng-sample-1',
+          rangoInicio: 10,
+          rangoFin: 13,
+          caratula: 'Oficio Jefatura N° 10/2026 a 13/2026 (Bloque)',
+          tipoDocumento: 'Expediente Extenso',
+          asunto: 'Expediente Completo y Anexos Periciales de Ciberdelito (Pieza 4)',
+          destinatario: 'Juzgado Federal N° 1 de Formosa',
+          solicitante: 'D.G.P.C. Formosa',
+          observaciones: 'Rango continuo de 4 folios asignados a la misma causa judicial.',
+          fecha: '05/02/2026',
+          hora: '08:20',
+          usuarioAsigno: 'superadmin',
+          delegacionId
+        }
+      ];
+
+      for (const fol of initialFolios) {
+        await db.foliosNumerario.add(fol);
+      }
+    }
+  }
+
+  public async getSeriesNumerario(delegacionId: number = 1): Promise<NumerarioSerie[]> {
+    await this.initialize();
+    let series = await db.seriesNumerario.where('delegacionId').equals(delegacionId).toArray();
+    if (series.length === 0) {
+      await this.seedDefaultNumerario(delegacionId);
+      series = await db.seriesNumerario.where('delegacionId').equals(delegacionId).toArray();
+    }
+    return series;
+  }
+
+  public async addSerieNumerario(serie: NumerarioSerie): Promise<number> {
+    await this.initialize();
+    const id = await db.seriesNumerario.add({
+      ...serie,
+      createdAt: serie.createdAt || new Date().toISOString()
+    });
+    this.notify();
+    return id;
+  }
+
+  public async updateSerieNumerario(id: number, changes: Partial<NumerarioSerie>): Promise<void> {
+    await this.initialize();
+    await db.seriesNumerario.update(id, changes);
+    this.notify();
+  }
+
+  public async deleteSerieNumerario(id: number): Promise<void> {
+    await this.initialize();
+    await db.transaction('rw', [db.seriesNumerario, db.foliosNumerario], async () => {
+      await db.foliosNumerario.where('serieId').equals(id).delete();
+      await db.seriesNumerario.delete(id);
+    });
+    this.notify();
+  }
+
+  public async getFoliosBySerie(serieId: number): Promise<FolioRegistro[]> {
+    await this.initialize();
+    return await db.foliosNumerario.where('serieId').equals(serieId).toArray();
+  }
+
+  public async getAllFolios(delegacionId: number = 1): Promise<FolioRegistro[]> {
+    await this.initialize();
+    return await db.foliosNumerario.where('delegacionId').equals(delegacionId).toArray();
+  }
+
+  public async assignFolio(folio: Omit<FolioRegistro, 'id'>): Promise<number> {
+    await this.initialize();
+    // Validate if number already assigned in this serie
+    const existing = await db.foliosNumerario
+      .where('[serieId+numero]')
+      .equals([folio.serieId, folio.numero])
+      .first()
+      .catch(async () => {
+        // Fallback filter
+        const all = await db.foliosNumerario.where('serieId').equals(folio.serieId).toArray();
+        return all.find(f => f.numero === folio.numero);
+      });
+
+    if (existing) {
+      throw new Error(`El folio N° ${folio.numero} ya se encuentra ocupado en esta serie.`);
+    }
+
+    const id = await db.foliosNumerario.add(folio);
+    this.notify();
+    return id;
+  }
+
+  public async assignFoliosRange(folios: Omit<FolioRegistro, 'id'>[]): Promise<void> {
+    await this.initialize();
+    if (!folios.length) return;
+    const serieId = folios[0].serieId;
+
+    // Check collisions
+    const existing = await db.foliosNumerario.where('serieId').equals(serieId).toArray();
+    const occupiedNumbers = new Set(existing.map(f => f.numero));
+
+    const collisions = folios.filter(f => occupiedNumbers.has(f.numero));
+    if (collisions.length > 0) {
+      const numbersList = collisions.map(c => c.numero).join(', ');
+      throw new Error(`Los siguientes folios ya están ocupados en esta serie: ${numbersList}`);
+    }
+
+    await db.foliosNumerario.bulkAdd(folios);
+    this.notify();
+  }
+
+  public async updateFolio(id: number, changes: Partial<FolioRegistro>): Promise<void> {
+    await this.initialize();
+    await db.foliosNumerario.update(id, changes);
+    this.notify();
+  }
+
+  public async liberarFolio(folioId: number, liberarRangoCompleto: boolean = false): Promise<void> {
+    await this.initialize();
+    const fol = await db.foliosNumerario.get(folioId);
+    if (!fol) return;
+
+    if (liberarRangoCompleto && fol.rangoId) {
+      await db.foliosNumerario.where('rangoId').equals(fol.rangoId).delete();
+    } else {
+      await db.foliosNumerario.delete(folioId);
+    }
+    this.notify();
+  }
+
+  public async reiniciarNumerarioSerie(serieId: number): Promise<void> {
+    await this.initialize();
+    await db.foliosNumerario.where('serieId').equals(serieId).delete();
+    this.notify();
+  }
+}
+
+export const sgpManager = new SgpManager();
+
