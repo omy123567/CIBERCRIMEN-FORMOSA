@@ -13,9 +13,13 @@ import {
   SlidersHorizontal,
   Plus,
   Printer,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { InstitutionalConfig, SisPolUser, SisPolDelegacion } from '../../types/sgp';
+import { syncWithServer } from '../../db/dexieDb';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -48,6 +52,9 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [currentDateTime, setCurrentDateTime] = useState('');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
 
   useEffect(() => {
     const updateTime = () => {
@@ -69,6 +76,44 @@ export const Header: React.FC<HeaderProps> = ({
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Periodic health check and auto-sync
+  useEffect(() => {
+    let isMounted = true;
+    const checkServer = async () => {
+      try {
+        const res = await fetch('/api/health');
+        if (isMounted) {
+          setIsOnline(res.ok);
+        }
+      } catch {
+        if (isMounted) {
+          setIsOnline(false);
+        }
+      }
+    };
+
+    checkServer();
+    const serverInterval = setInterval(checkServer, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(serverInterval);
+    };
+  }, []);
+
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const ok = await syncWithServer();
+      setIsOnline(ok);
+      setLastSyncTime(new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }));
+    } catch {
+      setIsOnline(false);
+    } finally {
+      setTimeout(() => setIsSyncing(false), 800);
+    }
+  };
 
   const activeDel = delegaciones.find((d) => d.id === activeDelegacionId);
 
@@ -96,14 +141,17 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="flex items-center gap-2.5">
           <img
-            src={institutionalConfig.logoDataUrl || '/assets/aistudio/DIc-nuevo_90a7fd82.png'}
+            src={institutionalConfig.logoDataUrl || '/logo-dgpc.png'}
             alt="Escudo"
             className="w-8 h-8 rounded-full object-cover ring-1 ring-blue-500/40"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = '/logo-policia-formosa.png';
+            }}
           />
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <span className="text-sm font-black tracking-tight text-white whitespace-nowrap">
-                {institutionalConfig.systemName || 'SGP SisPol'}
+                {institutionalConfig.systemName || 'S.I.S.D.I.C.'}
               </span>
               <span className="hidden sm:inline-block text-[10px] px-2 py-0.2 rounded-full font-bold bg-blue-600/30 text-blue-300 border border-blue-500/30">
                 {activeDel?.codigo || 'DPC'}
@@ -151,8 +199,41 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Zone 3: Actions, Dark Mode & User Profile */}
+      {/* Zone 3: Online Status, Actions, Dark Mode & User Profile */}
       <div className="flex items-center gap-2 shrink-0">
+        {/* Real-time Online / Sync Indicator */}
+        <button
+          onClick={handleManualSync}
+          disabled={isSyncing}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+            isOnline
+              ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80 hover:bg-emerald-900/50'
+              : 'bg-amber-950/60 text-amber-300 border-amber-800/80 hover:bg-amber-900/50'
+          }`}
+          title={
+            isOnline
+              ? `Sistema Online conectado a BD Central SQLite. Clic para forzar sincronización manual.${lastSyncTime ? ` (Última: ${lastSyncTime})` : ''}`
+              : 'Modo Local Offline. Servidor no alcanzable momentáneamente. Clic para reintentar sincronizar.'
+          }
+        >
+          <span className="relative flex h-2 w-2">
+            {isOnline && (
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            )}
+            <span
+              className={`relative inline-flex rounded-full h-2 w-2 ${
+                isOnline ? 'bg-emerald-500' : 'bg-amber-500'
+              }`}
+            ></span>
+          </span>
+          <span className="hidden sm:inline text-[11px] font-bold">
+            {isOnline ? 'En Línea (Central)' : 'Modo Local'}
+          </span>
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-white' : isOnline ? 'text-emerald-400' : 'text-amber-400'}`}
+          />
+        </button>
+
         {/* Dark/Light mode toggle */}
         <button
           onClick={onToggleDarkMode}

@@ -30,6 +30,7 @@ interface PersonalFormModalProps {
   onSave: (person: Personal) => void;
   initialData?: Personal | null;
   catalogs: DynamicCatalog[];
+  delegacionId?: number;
 }
 
 const TIPO_DOCS = [
@@ -63,7 +64,8 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
   onClose,
   onSave,
   initialData,
-  catalogs
+  catalogs,
+  delegacionId
 }) => {
   const jerarquias = catalogs.filter((c) => c.category === 'Jerarquias').map((c) => c.value);
   const grupos = catalogs.filter((c) => c.category === 'Grupos').map((c) => c.value);
@@ -351,7 +353,7 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
       disponible,
       motivoNoDisponible: disponible ? '' : motivoNoDisponible,
       customFieldsJson: JSON.stringify(customFields),
-      delegacionId: 1
+      delegacionId: initialData?.delegacionId || delegacionId || 1
     };
 
     onSave(person);

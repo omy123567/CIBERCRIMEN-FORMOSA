@@ -153,6 +153,7 @@ export interface Movil {
   identificador: string; // ej. "M-101"
   marca: string;
   modelo: string;
+  tipo?: string;
   dominio: string; // Patente
   chasis: string;
   motor: string;
@@ -332,7 +333,20 @@ export interface InstitutionalConfig {
   headerLines?: MembreteLine[]; // Líneas de texto centrales dinámicas
 }
 
-export type UserRole = 'Operador' | 'Administrador' | 'superusuario';
+export type StandardUserRole = 'Operador' | 'Administrador' | 'superusuario';
+export type UserRole = StandardUserRole | string;
+
+export interface CustomRoleDefinition {
+  id?: number;
+  nombre: string;
+  descripcion?: string;
+  canDelete: boolean;
+  allowedModules: string[];
+  allDelegacionesAccess?: boolean;
+  canAdminModules?: boolean;
+  isSystem?: boolean;
+  createdAt?: string;
+}
 
 export interface SisPolUser {
   id?: number;
@@ -385,6 +399,7 @@ export interface FolioRegistro {
   rangoInicio?: number;
   rangoFin?: number;
   rangoId?: string;
+  anio?: number | string;
   caratula: string;
   tipoDocumento: string;
   asunto: string;

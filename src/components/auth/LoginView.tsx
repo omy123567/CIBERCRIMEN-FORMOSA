@@ -42,22 +42,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
     }
   };
 
-  const handleQuickLogin = async (userDemo: string, passDemo: string) => {
-    setUsername(userDemo);
-    setPassword(passDemo);
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      const user = await sgpManager.authenticate(userDemo, passDemo);
-      if (user) {
-        localStorage.setItem('sispol_current_user', JSON.stringify(user));
-        onLoginSuccess(user);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-slate-950 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(14,165,233,0.15),rgba(255,255,255,0))] p-4 text-slate-100">
       <div className="w-full max-w-md">
@@ -69,9 +53,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
             <div className="relative group">
               <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-blue-600 via-cyan-500 to-indigo-600 opacity-60 blur-xs group-hover:opacity-100 transition duration-300" />
               <img
-                src="/assets/aistudio/DIc-nuevo_90a7fd82.png"
-                alt="Escudo Oficial D.G.P.C. Ciberdelito"
+                src="/logo-dgpc.png"
+                alt="Escudo Oficial D.G.P.C."
                 className="relative w-28 h-28 object-contain rounded-full bg-slate-950 p-1 shadow-lg border border-slate-700"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/logo-policia-formosa.png';
+                }}
               />
             </div>
 
@@ -79,11 +66,14 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
               <span className="text-[11px] font-black tracking-widest text-blue-400 uppercase">
                 POLICÍA DE LA PROVINCIA DE FORMOSA
               </span>
-              <h1 className="text-xl font-extrabold text-white tracking-tight mt-0.5">
-                SGP / SISPOL
+              <h1 className="text-2xl font-black text-white tracking-tight mt-1">
+                S.I.S.D.I.C.
               </h1>
-              <p className="text-xs text-slate-400 mt-1">
-                Dirección General Policía Científica • Ciberdelito
+              <p className="text-xs text-blue-200/90 font-medium mt-1">
+                Sistema Integral de Seguridad y Delitos Informáticos Complejos
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Dirección General Policía Científica • División Ciberdelito
               </p>
             </div>
           </div>
@@ -110,7 +100,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="ej. superadmin o operador.lb"
+                  placeholder="Ingrese su usuario..."
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
               </div>
@@ -151,58 +141,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
             </button>
           </form>
 
-          {/* Quick Access Demo Badges for smooth testing */}
-          <div className="pt-4 border-t border-slate-800/80 space-y-2">
-            <span className="text-[11px] font-semibold text-slate-400 block text-center">
-              Acceso Rápido por Perfil (Demostración de Roles):
-            </span>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('superadmin', 'admin123')}
-                className="p-2 bg-slate-800/70 hover:bg-slate-800 text-left rounded-xl border border-slate-700/60 hover:border-blue-500/50 transition-colors"
-              >
-                <div className="font-bold text-amber-400">Superusuario</div>
-                <div className="text-[10px] text-slate-400">superadmin / admin123</div>
-                <div className="text-[9px] text-slate-500">Todas las delegaciones</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('admin.lb', 'policia2026')}
-                className="p-2 bg-slate-800/70 hover:bg-slate-800 text-left rounded-xl border border-slate-700/60 hover:border-blue-500/50 transition-colors"
-              >
-                <div className="font-bold text-blue-400">Admin Laguna Bca.</div>
-                <div className="text-[10px] text-slate-400">admin.lb / policia2026</div>
-                <div className="text-[9px] text-slate-500">Del. Laguna Blanca</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('operador.lb', 'operador123')}
-                className="p-2 bg-slate-800/70 hover:bg-slate-800 text-left rounded-xl border border-slate-700/60 hover:border-blue-500/50 transition-colors"
-              >
-                <div className="font-bold text-emerald-400">Operador LB</div>
-                <div className="text-[10px] text-slate-400">operador.lb / operador123</div>
-                <div className="text-[9px] text-slate-500">Sin permiso de borrado</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('admin.clorinda', 'policia2026')}
-                className="p-2 bg-slate-800/70 hover:bg-slate-800 text-left rounded-xl border border-slate-700/60 hover:border-blue-500/50 transition-colors"
-              >
-                <div className="font-bold text-indigo-400">Admin Clorinda</div>
-                <div className="text-[10px] text-slate-400">admin.clorinda / policia2026</div>
-                <div className="text-[9px] text-slate-500">Del. Clorinda</div>
-              </button>
-            </div>
-          </div>
-
           {/* Security footnote */}
-          <div className="text-center text-[10px] text-slate-500 flex items-center justify-center gap-1.5 pt-1">
+          <div className="text-center text-[10px] text-slate-500 flex items-center justify-center gap-1.5 pt-2 border-t border-slate-800/80">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Sistema Seguro con Base de Datos Cifrada Local (Offline-First)</span>
+            <span>Acceso Oficial Restringido • Servidor Seguro con Replicación Centralizada</span>
           </div>
 
         </div>

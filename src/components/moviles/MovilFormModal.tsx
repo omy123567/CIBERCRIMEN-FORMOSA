@@ -8,6 +8,7 @@ interface MovilFormModalProps {
   onSave: (movil: Movil) => void;
   initialData?: Movil | null;
   catalogs: DynamicCatalog[];
+  delegacionId?: number;
 }
 
 export const MovilFormModal: React.FC<MovilFormModalProps> = ({
@@ -15,7 +16,8 @@ export const MovilFormModal: React.FC<MovilFormModalProps> = ({
   onClose,
   onSave,
   initialData,
-  catalogs
+  catalogs,
+  delegacionId
 }) => {
   const marcas = catalogs.filter((c) => c.category === 'Marca Movil').map((c) => c.value);
   const modelos = catalogs.filter((c) => c.category === 'Modelo Movil').map((c) => c.value);
@@ -95,7 +97,7 @@ export const MovilFormModal: React.FC<MovilFormModalProps> = ({
       companiaSeguro,
       numeroPoliza,
       observaciones,
-      delegacionId: 1
+      delegacionId: initialData?.delegacionId || delegacionId || 1
     };
 
     onSave(movilData);

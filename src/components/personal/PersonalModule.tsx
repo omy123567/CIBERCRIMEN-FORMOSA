@@ -38,6 +38,8 @@ interface PersonalModuleProps {
   expedientes?: Expediente[];
   catalogs: DynamicCatalog[];
   institutionalConfig: InstitutionalConfig;
+  delegacionId?: number;
+  onNavigate?: (module: string) => void;
   onRefresh: () => void;
   onNavigateToLicencias?: (personId: number) => void;
   onNavigateToPpi?: () => void;
@@ -48,6 +50,8 @@ export const PersonalModule: React.FC<PersonalModuleProps> = ({
   expedientes = [],
   catalogs,
   institutionalConfig,
+  delegacionId,
+  onNavigate,
   onRefresh,
   onNavigateToPpi
 }) => {
@@ -55,6 +59,7 @@ export const PersonalModule: React.FC<PersonalModuleProps> = ({
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
   // Search & Filter
+  const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterGrupo, setFilterGrupo] = useState('');
   const [filterJerarquia, setFilterJerarquia] = useState('');
@@ -75,6 +80,22 @@ export const PersonalModule: React.FC<PersonalModuleProps> = ({
 
   const grupos = catalogs.filter((c) => c.category === 'Grupos').map((c) => c.value);
   const jerarquias = catalogs.filter((c) => c.category === 'Jerarquias').map((c) => c.value);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filterGrupo) count++;
+    if (filterJerarquia) count++;
+    if (filterDisponible) count++;
+    return count;
+  }, [searchTerm, filterGrupo, filterJerarquia, filterDisponible]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilterGrupo('');
+    setFilterJerarquia('');
+    setFilterDisponible('');
+  };
 
   // Filtered List
   const filteredPersonal = useMemo(() => {
@@ -98,11 +119,15 @@ export const PersonalModule: React.FC<PersonalModuleProps> = ({
 
   // Actions
   const handleSavePerson = async (person: Personal) => {
+    const personToSave: Personal = {
+      ...person,
+      delegacionId: person.delegacionId || delegacionId || 1
+    };
     const db = (await import('../../db/dexieDb')).db;
-    if (person.id) {
-      await db.personal.put(person);
+    if (personToSave.id) {
+      await db.personal.put(personToSave);
     } else {
-      await db.personal.add(person);
+      await db.personal.add(personToSave);
     }
     sgpManager.notify();
     onRefresh();
@@ -161,6 +186,30 @@ export const PersonalModule: React.FC<PersonalModuleProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Submodule Navigation Banner */}
+      {onNavigate && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-2xl text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-blue-900 dark:text-blue-200">Submódulo Dependiente:</span>
+            <span className="text-slate-500 dark:text-slate-400">Licencias Policiales y Cuatrienios por Efectivo</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNavigate('licencias')}
+              className="text-xs font-bold px-3 py-1.5 bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 hover:bg-blue-100 rounded-xl border border-blue-200 dark:border-blue-800 transition-colors shadow-2xs"
+            >
+              Ir a Submódulo: Licencias Policiales →
+            </button>
+            <button
+              onClick={() => onNavigate('ppi')}
+              className="text-xs font-bold px-3 py-1.5 bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 hover:bg-sky-200 rounded-xl border border-sky-300 dark:border-sky-800 transition-colors"
+            >
+              Causas PPI →
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Header & Actions Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div>
@@ -218,68 +267,120 @@ export const PersonalModule: React.FC<PersonalModuleProps> = ({
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-        <div className="md:col-span-2 relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por Apellido, Nombre, DNI, Plaza o Jerarquía..."
-            className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
-          />
+      {/* Filter and Search Bar with Hide/Show Toggle */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
+            >
+              <Filter className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-mono">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
+
+            {activeFiltersCount > 0 && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold underline underline-offset-2 ml-1"
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-slate-400 text-xs">
+              Mostrando <strong className="text-slate-700 dark:text-slate-200 font-mono">{filteredPersonal.length}</strong> de <span className="font-mono">{personalList.length}</span> efectivos
+            </span>
+
+            {/* View Switcher: Cards vs Table */}
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  viewMode === 'cards'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Fichas
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  viewMode === 'table'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Planilla
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <select
-            value={filterJerarquia}
-            onChange={(e) => setFilterJerarquia(e.target.value)}
-            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
-          >
-            <option value="">Todas las Jerarquías</option>
-            {jerarquias.map((j, i) => (
-              <option key={i} value={j}>{j}</option>
-            ))}
-          </select>
-        </div>
+        {showFilters && (
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transition-all">
+            <div className="relative sm:col-span-5">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar por Apellido, Nombre, DNI, Plaza o Jerarquía..."
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
 
-        <div>
-          <select
-            value={filterGrupo}
-            onChange={(e) => setFilterGrupo(e.target.value)}
-            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
-          >
-            <option value="">Todas las Guardias / Secciones</option>
-            {grupos.map((g, i) => (
-              <option key={i} value={g}>{g}</option>
-            ))}
-          </select>
-        </div>
+            <div className="sm:col-span-3">
+              <select
+                value={filterJerarquia}
+                onChange={(e) => setFilterJerarquia(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+              >
+                <option value="">Todas las Jerarquías</option>
+                {jerarquias.map((j, i) => (
+                  <option key={i} value={j}>{j}</option>
+                ))}
+              </select>
+            </div>
 
-        {/* View Switcher: Cards vs Table */}
-        <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-          <button
-            onClick={() => setViewMode('cards')}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              viewMode === 'cards'
-                ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            Fichas
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              viewMode === 'table'
-                ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            Planilla
-          </button>
-        </div>
+            <div className="sm:col-span-2">
+              <select
+                value={filterGrupo}
+                onChange={(e) => setFilterGrupo(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+              >
+                <option value="">Todas las Secciones</option>
+                {grupos.map((g, i) => (
+                  <option key={i} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <select
+                value={filterDisponible}
+                onChange={(e) => setFilterDisponible(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-medium"
+              >
+                <option value="">Disponibilidad: Todas</option>
+                <option value="true">Solo Disponibles (Servicio)</option>
+                <option value="false">No Disponibles / De Licencia</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Main Content View */}
@@ -802,6 +903,7 @@ export const PersonalModule: React.FC<PersonalModuleProps> = ({
         onSave={handleSavePerson}
         initialData={editingPerson}
         catalogs={catalogs}
+        delegacionId={delegacionId}
       />
 
       {/* Confirm Delete Dialog */}

@@ -16,7 +16,8 @@ import {
   SisPolUser,
   SisPolDelegacion,
   NumerarioSerie,
-  FolioRegistro
+  FolioRegistro,
+  CustomRoleDefinition
 } from '../types/sgp';
 import { initialSgpBackup, initialInstitutionalConfig } from './sgpInitialData';
 
@@ -37,6 +38,7 @@ export class SisPolDatabase extends Dexie {
   delegaciones!: Table<SisPolDelegacion, number>;
   seriesNumerario!: Table<NumerarioSerie, number>;
   foliosNumerario!: Table<FolioRegistro, number>;
+  customRoles!: Table<CustomRoleDefinition, number>;
 
   constructor() {
     super('SisPolDB_Formosa');
@@ -105,6 +107,26 @@ export class SisPolDatabase extends Dexie {
       delegaciones: '++id, &codigo, nombre',
       seriesNumerario: '++id, nombre, prefijo, anio, delegacionId',
       foliosNumerario: '++id, serieId, numero, rangoId, delegacionId, fecha, destinatario, tipoDocumento'
+    });
+
+    this.version(5).stores({
+      expedientes: '++id, anio, nroExpediente, estado, tipoRequerimiento, juzgado, fechaIngreso, fechaVencimiento, delegacionId',
+      personal: '++id, jerarquia, apellidoNombre, dni, grupo, disponible, delegacionId',
+      moviles: '++id, identificador, dominio, condicion, delegacionId',
+      reparaciones: '++id, movilId, fecha, delegacionId',
+      recargos: '++id, personalId, fecha, delegacionId',
+      charlas: '++id, fecha, localidad, delegacionId',
+      licencias: '++id, personalId, anioPeriodo, tipoLicencia, delegacionId',
+      personas: '++id, dni, apellidoNombre, delegacionId',
+      dynamicCatalogs: '++id, category, value, delegacionId',
+      dynamicFields: '++id, entity, fieldKey',
+      attachments: 'key, mimeType, name, updatedAt',
+      settings: 'key',
+      users: '++id, &username, email, rol, delegacionId',
+      delegaciones: '++id, &codigo, nombre',
+      seriesNumerario: '++id, nombre, prefijo, anio, delegacionId',
+      foliosNumerario: '++id, serieId, numero, rangoId, delegacionId, fecha, destinatario, tipoDocumento',
+      customRoles: '++id, &nombre, canDelete'
     });
   }
 }
@@ -202,7 +224,8 @@ class SgpManager {
         db.dynamicCatalogs,
         db.delegaciones,
         db.seriesNumerario,
-        db.foliosNumerario
+        db.foliosNumerario,
+        db.customRoles
       ], async () => {
         if (data.expedientes && Array.isArray(data.expedientes)) {
           await db.expedientes.clear();
@@ -233,8 +256,14 @@ class SgpManager {
           await db.licencias.bulkAdd(data.licencias);
         }
         if (data.personas && Array.isArray(data.personas)) {
+          const parsedPersonas = data.personas.map((p: any) => ({
+            ...p,
+            expedientesVinculados: typeof p.expedientesVinculados === 'string'
+              ? (() => { try { return JSON.parse(p.expedientesVinculados); } catch { return []; } })()
+              : (Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : [])
+          }));
           await db.personas.clear();
-          await db.personas.bulkAdd(data.personas);
+          await db.personas.bulkAdd(parsedPersonas);
         }
         if (data.dynamicCatalogs && Array.isArray(data.dynamicCatalogs)) {
           await db.dynamicCatalogs.clear();
@@ -251,6 +280,10 @@ class SgpManager {
         if (data.foliosNumerario && Array.isArray(data.foliosNumerario)) {
           await db.foliosNumerario.clear();
           await db.foliosNumerario.bulkAdd(data.foliosNumerario);
+        }
+        if (data.roles && Array.isArray(data.roles)) {
+          await db.customRoles.clear();
+          await db.customRoles.bulkAdd(data.roles);
         }
       });
 
@@ -321,10 +354,47 @@ class SgpManager {
 
     // Folios
     db.foliosNumerario.hook('creating', (_primKey, obj) => {
-      sendMutation('/api/numerario/folios', 'POST', obj);
+      const folioToSend = {
+        ...obj,
+        anio: Number(obj.anio) || new Date().getFullYear()
+      };
+      sendMutation('/api/numerario/folios', 'POST', folioToSend);
+    });
+    db.foliosNumerario.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/numerario/folios/${primKey}`, 'PUT', { ...obj, ...modifications });
     });
     db.foliosNumerario.hook('deleting', (primKey) => {
       sendMutation(`/api/numerario/folios/${primKey}`, 'DELETE');
+    });
+
+    // Personas Investigadas
+    db.personas.hook('creating', (_primKey, obj) => {
+      sendMutation('/api/personas', 'POST', obj);
+    });
+    db.personas.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/personas/${primKey}`, 'PUT', { ...obj, ...modifications });
+    });
+    db.personas.hook('deleting', (primKey) => {
+      sendMutation(`/api/personas/${primKey}`, 'DELETE');
+    });
+
+    // Catálogos Dinámicos
+    db.dynamicCatalogs.hook('creating', (_primKey, obj) => {
+      sendMutation('/api/dynamic-catalogs', 'POST', obj);
+    });
+    db.dynamicCatalogs.hook('deleting', (primKey) => {
+      sendMutation(`/api/dynamic-catalogs/${primKey}`, 'DELETE');
+    });
+
+    // Custom Roles
+    db.customRoles.hook('creating', (_primKey, obj) => {
+      sendMutation('/api/roles', 'POST', obj);
+    });
+    db.customRoles.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/roles/${primKey}`, 'PUT', { ...obj, ...modifications });
+    });
+    db.customRoles.hook('deleting', (primKey) => {
+      sendMutation(`/api/roles/${primKey}`, 'DELETE');
     });
 
     // Periodical background pull every 20 seconds
@@ -782,7 +852,7 @@ class SgpManager {
         dni: cleanDni,
         apellidoNombre: cleanName,
         fechaRegistro: persona.fechaRegistro || new Date().toLocaleDateString('es-AR'),
-        delegacionId: 1
+        delegacionId: persona.delegacionId || 1
       });
       return newId;
     }
@@ -814,7 +884,7 @@ class SgpManager {
               ...p,
               fechaRegistro: new Date().toLocaleDateString('es-AR'),
               expedientesVinculados: [expRef],
-              delegacionId: 1
+              delegacionId: consolidatedCase.delegacionId || 1
             });
           }
         }
@@ -823,6 +893,73 @@ class SgpManager {
       this.notify();
       return createdId;
     });
+  }
+
+  // --- Roles y Perfiles de Permisos ---
+  public async getRoles(): Promise<CustomRoleDefinition[]> {
+    await this.initialize();
+    const list = await db.customRoles.toArray();
+    if (list.length === 0) {
+      return [
+        {
+          id: 1,
+          nombre: 'Operador',
+          descripcion: 'Carga de datos operativos, registro de expedientes, personal y consultas',
+          canDelete: false,
+          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas'],
+          allDelegacionesAccess: false,
+          canAdminModules: false,
+          isSystem: true
+        },
+        {
+          id: 2,
+          nombre: 'Administrador',
+          descripcion: 'Gestión completa de su Delegación, reportes, usuarios y eliminación de registros',
+          canDelete: true,
+          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas', 'membrete', 'catalogos', 'respaldos', 'usuarios'],
+          allDelegacionesAccess: false,
+          canAdminModules: false,
+          isSystem: true
+        },
+        {
+          id: 3,
+          nombre: 'superusuario',
+          descripcion: 'Acceso irrestricto total a todas las delegaciones, configuración y orden de módulos',
+          canDelete: true,
+          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas', 'membrete', 'catalogos', 'respaldos', 'usuarios', 'modulos'],
+          allDelegacionesAccess: true,
+          canAdminModules: true,
+          isSystem: true
+        }
+      ];
+    }
+    return list;
+  }
+
+  public async addRole(role: CustomRoleDefinition): Promise<number> {
+    await this.initialize();
+    const id = await db.customRoles.add({
+      ...role,
+      createdAt: new Date().toISOString()
+    });
+    this.notify();
+    return id;
+  }
+
+  public async updateRole(id: number, changes: Partial<CustomRoleDefinition>): Promise<void> {
+    await this.initialize();
+    await db.customRoles.update(id, changes);
+    this.notify();
+  }
+
+  public async deleteRole(id: number): Promise<void> {
+    await this.initialize();
+    const r = await db.customRoles.get(id);
+    if (r?.isSystem) {
+      throw new Error('No es posible eliminar roles base del sistema.');
+    }
+    await db.customRoles.delete(id);
+    this.notify();
   }
 
   // =========================================================================
@@ -901,6 +1038,7 @@ class SgpManager {
         {
           serieId: serieJefId,
           numero: 1,
+          anio: 2026,
           caratula: 'Oficio Jefatura N° 01/2026',
           tipoDocumento: 'Oficio Judicial',
           asunto: 'Remisión de Informe Pericial Balístico en Causa N° 121/26',
@@ -915,6 +1053,7 @@ class SgpManager {
         {
           serieId: serieJefId,
           numero: 2,
+          anio: 2026,
           caratula: 'Oficio Jefatura N° 02/2026',
           tipoDocumento: 'Oficio Judicial',
           asunto: 'Solicitud de Resguardo Fílmico de Cámaras de Seguridad en Vía Pública',
@@ -929,6 +1068,7 @@ class SgpManager {
         {
           serieId: serieJefId,
           numero: 3,
+          anio: 2026,
           caratula: 'Oficio Jefatura N° 03/2026',
           tipoDocumento: 'Comunicación Oficial',
           asunto: 'Informe Técnico de Extracción Forense Celular UFED con Hash SHA-256',
@@ -944,6 +1084,7 @@ class SgpManager {
         {
           serieId: serieJefId,
           numero: 10,
+          anio: 2026,
           rangoId: 'rng-sample-1',
           rangoInicio: 10,
           rangoFin: 13,
@@ -961,6 +1102,7 @@ class SgpManager {
         {
           serieId: serieJefId,
           numero: 11,
+          anio: 2026,
           rangoId: 'rng-sample-1',
           rangoInicio: 10,
           rangoFin: 13,
@@ -978,6 +1120,7 @@ class SgpManager {
         {
           serieId: serieJefId,
           numero: 12,
+          anio: 2026,
           rangoId: 'rng-sample-1',
           rangoInicio: 10,
           rangoFin: 13,
@@ -995,6 +1138,7 @@ class SgpManager {
         {
           serieId: serieJefId,
           numero: 13,
+          anio: 2026,
           rangoId: 'rng-sample-1',
           rangoInicio: 10,
           rangoFin: 13,
@@ -1079,7 +1223,11 @@ class SgpManager {
       throw new Error(`El folio N° ${folio.numero} ya se encuentra ocupado en esta serie.`);
     }
 
-    const id = await db.foliosNumerario.add(folio);
+    const folioToSave = {
+      ...folio,
+      anio: Number(folio.anio) || new Date().getFullYear()
+    };
+    const id = await db.foliosNumerario.add(folioToSave);
     this.notify();
     return id;
   }
@@ -1099,7 +1247,11 @@ class SgpManager {
       throw new Error(`Los siguientes folios ya están ocupados en esta serie: ${numbersList}`);
     }
 
-    await db.foliosNumerario.bulkAdd(folios);
+    const foliosToSave = folios.map(f => ({
+      ...f,
+      anio: Number(f.anio) || new Date().getFullYear()
+    }));
+    await db.foliosNumerario.bulkAdd(foliosToSave);
     this.notify();
   }
 
@@ -1130,4 +1282,4 @@ class SgpManager {
 }
 
 export const sgpManager = new SgpManager();
-
+export const syncWithServer = () => sgpManager.syncWithServer();

@@ -110,12 +110,15 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
       const horaStr = now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
       const rangoId = isRange && start !== end ? `rng-${Date.now()}-${start}-${end}` : undefined;
 
+      const anioNum = parseInt(anio, 10) || parseInt(String(serie.anio || '2026'), 10) || new Date().getFullYear();
+
       const foliosToInsert: Omit<FolioRegistro, 'id'>[] = rangeNumbers.map((num, idx) => ({
         serieId: serie.id!,
         numero: num,
         rangoId,
         rangoInicio: isRange && start !== end ? start : undefined,
         rangoFin: isRange && start !== end ? end : undefined,
+        anio: anioNum,
         caratula: isRange && start !== end 
           ? `${serie.nombre} N° ${start}/${anio} a ${end}/${anio} [Pieza ${idx + 1}/${rangeNumbers.length}]`
           : `${serie.nombre} N° ${num}/${anio}`,

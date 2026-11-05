@@ -57,6 +57,12 @@ export const NumerarioModule: React.FC<NumerarioModuleProps> = ({
   // Density: compact, standard, large
   const [density, setDensity] = useState<GridDensity>('standard');
 
+  // Search & Filters for grid
+  const [showFilters, setShowFilters] = useState(true);
+  const [searchFolio, setSearchFolio] = useState('');
+  const [filterEstadoFolio, setFilterEstadoFolio] = useState<'TODOS' | 'OCUPADOS' | 'LIBRES'>('TODOS');
+  const [filterTipoDoc, setFilterTipoDoc] = useState('');
+
   // Modals state
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assignStartNum, setAssignStartNum] = useState<number>(1);
@@ -138,6 +144,74 @@ export const NumerarioModule: React.FC<NumerarioModuleProps> = ({
   // Max folios in the grid
   const totalLimit = activeSerie?.limiteFolios || 1000;
   const numColumns = activeSerie?.columnas || 20;
+
+  // Document types present in current serie
+  const tiposDocumentoEnSerie = useMemo(
+    () => Array.from(new Set(folios.map(f => f.tipoDocumento).filter(Boolean))),
+    [folios]
+  );
+
+  // Active filters count
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchFolio.trim()) count++;
+    if (filterEstadoFolio !== 'TODOS') count++;
+    if (filterTipoDoc) count++;
+    return count;
+  }, [searchFolio, filterEstadoFolio, filterTipoDoc]);
+
+  const handleClearFilters = () => {
+    setSearchFolio('');
+    setFilterEstadoFolio('TODOS');
+    setFilterTipoDoc('');
+  };
+
+  // Set of matching numbers for highlighting or isolating
+  const matchingNumbersSet = useMemo(() => {
+    const q = searchFolio.trim().toLowerCase();
+    const hasQuery = q.length > 0;
+    const hasType = !!filterTipoDoc;
+    const isSearchingNumber = hasQuery && !isNaN(parseInt(q, 10));
+    const searchNum = isSearchingNumber ? parseInt(q, 10) : null;
+
+    const set = new Set<number>();
+
+    for (let i = 1; i <= totalLimit; i++) {
+      const isOccupied = occupiedNumbersSet.has(i);
+      const fol = occupiedMap.get(i);
+
+      // Estado filter
+      if (filterEstadoFolio === 'OCUPADOS' && !isOccupied) continue;
+      if (filterEstadoFolio === 'LIBRES' && isOccupied) continue;
+
+      // If filtering by document type, must be occupied with matching type
+      if (hasType) {
+        if (!fol || fol.tipoDocumento !== filterTipoDoc) continue;
+      }
+
+      // Query filter
+      if (hasQuery) {
+        if (isOccupied && fol) {
+          const numMatch = fol.numero === searchNum;
+          const carMatch = (fol.caratula || '').toLowerCase().includes(q);
+          const asuMatch = (fol.asunto || '').toLowerCase().includes(q);
+          const destMatch = (fol.destinatario || '').toLowerCase().includes(q);
+          const solMatch = (fol.solicitante || '').toLowerCase().includes(q);
+          const fechaMatch = (fol.fecha || '').includes(q);
+          if (!numMatch && !carMatch && !asuMatch && !destMatch && !solMatch && !fechaMatch) {
+            continue;
+          }
+        } else {
+          // If free, only matches if searching specifically for this exact number
+          if (searchNum !== i) continue;
+        }
+      }
+
+      set.add(i);
+    }
+
+    return set;
+  }, [totalLimit, occupiedNumbersSet, occupiedMap, searchFolio, filterEstadoFolio, filterTipoDoc]);
 
   // Compute first available number in active serie
   const firstFreeNumber = useMemo(() => {
@@ -489,6 +563,87 @@ export const NumerarioModule: React.FC<NumerarioModuleProps> = ({
         </div>
       )}
 
+      {/* Search and Filters for Numerario Grid */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
+            >
+              <Filter className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-mono">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
+
+            {activeFiltersCount > 0 && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold underline underline-offset-2 ml-1"
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          <div className="text-slate-400 text-xs">
+            {activeFiltersCount > 0 ? (
+              <span>
+                Coincidencias encontradas: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{matchingNumbersSet.size}</strong> de {totalLimit} folios
+              </span>
+            ) : (
+              <span>Total en grilla: <strong className="text-slate-700 dark:text-slate-200 font-mono">{totalLimit}</strong> folios</span>
+            )}
+          </div>
+        </div>
+
+        {showFilters && (
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transition-all">
+            <div className="relative sm:col-span-5">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+              <input
+                type="text"
+                value={searchFolio}
+                onChange={(e) => setSearchFolio(e.target.value)}
+                placeholder="Buscar por N° exacto, carátula, asunto, destinatario o fecha..."
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="sm:col-span-4">
+              <select
+                value={filterEstadoFolio}
+                onChange={(e) => setFilterEstadoFolio(e.target.value as any)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-semibold"
+              >
+                <option value="TODOS">Todos los Folios (Libres y Ocupados)</option>
+                <option value="OCUPADOS">Solo Folios Ocupados ({totalOccupied})</option>
+                <option value="LIBRES">Solo Folios Libres ({totalFree})</option>
+              </select>
+            </div>
+
+            <div className="sm:col-span-3">
+              <select
+                value={filterTipoDoc}
+                onChange={(e) => setFilterTipoDoc(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+              >
+                <option value="">Todos los Tipos de Trámite</option>
+                {tiposDocumentoEnSerie.map((t, idx) => (
+                  <option key={idx} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* =========================================================================
           1. CUADRÍCULA NUMÉRICA CONTINUA (20 COLUMNAS EXACTAS C1 a C20)
          ========================================================================= */}
@@ -517,6 +672,12 @@ export const NumerarioModule: React.FC<NumerarioModuleProps> = ({
               </span>
               <span className="text-red-600 dark:text-red-400 font-bold">Ocupado (Tachado)</span>
             </div>
+            {activeFiltersCount > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded border-2 border-emerald-500 bg-emerald-500/30" />
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold">Coincidencia</span>
+              </div>
+            )}
             <div className="flex items-center gap-1.5">
               <span className="w-3.5 h-3.5 rounded border border-blue-500 bg-blue-500/30" />
               <span className="text-blue-600 dark:text-blue-400">Selección Rango</span>
@@ -550,6 +711,7 @@ export const NumerarioModule: React.FC<NumerarioModuleProps> = ({
                 const fol = isOccupied ? occupiedMap.get(num)! : null;
                 const isInSelectedRange = selectedRange && num >= selectedRange.start && num <= selectedRange.end;
                 const isAnchor = lastClickedNumber === num;
+                const isMatch = activeFiltersCount > 0 ? matchingNumbersSet.has(num) : true;
 
                 return (
                   <button
@@ -571,7 +733,13 @@ export const NumerarioModule: React.FC<NumerarioModuleProps> = ({
                         : isOccupied
                         ? 'bg-red-500/15 border-red-500/50 text-red-600 dark:text-red-400 font-black line-through hover:bg-red-500/25 hover:border-red-600'
                         : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50/50 dark:hover:bg-slate-800'
-                    } ${isAnchor ? 'ring-2 ring-blue-600' : ''}`}
+                    } ${isAnchor ? 'ring-2 ring-blue-600' : ''} ${
+                      activeFiltersCount > 0
+                        ? isMatch
+                          ? 'ring-2 ring-emerald-500 ring-offset-1 scale-105 z-10 shadow-sm'
+                          : 'opacity-25 grayscale'
+                        : ''
+                    }`}
                     title={
                       fol
                         ? `Folio N° ${num} [OCUPADO]\nCarátula: ${fol.caratula}\nAsunto: ${fol.asunto}\nDestinatario: ${fol.destinatario}\nFecha: ${fol.fecha}`

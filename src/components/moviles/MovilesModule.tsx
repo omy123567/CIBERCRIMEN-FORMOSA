@@ -3,6 +3,7 @@ import {
   Car,
   Plus,
   Search,
+  Filter,
   Wrench,
   FileDown,
   AlertTriangle,
@@ -28,6 +29,8 @@ interface MovilesModuleProps {
   reparaciones: Reparacion[];
   catalogs: DynamicCatalog[];
   institutionalConfig: InstitutionalConfig;
+  delegacionId?: number;
+  onNavigate?: (module: string) => void;
   onRefresh: () => void;
 }
 
@@ -38,11 +41,16 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
   reparaciones,
   catalogs,
   institutionalConfig,
+  delegacionId,
+  onNavigate,
   onRefresh
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCondicion, setFilterCondicion] = useState('');
+  const [filterTipo, setFilterTipo] = useState('');
+  const [filterServiceStatus, setFilterServiceStatus] = useState<'TODOS' | 'VENCIDOS' | 'ALERTA' | 'OK'>('TODOS');
   const [sortField, setSortField] = useState<'identificador' | 'kmActual' | 'dominio'>('identificador');
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -90,10 +98,37 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
     }
   };
 
+  const tiposMovil = useMemo(() => {
+    return catalogs.filter(c => c.category === 'Tipo Movil').map(c => c.value);
+  }, [catalogs]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filterCondicion) count++;
+    if (filterTipo) count++;
+    if (filterServiceStatus !== 'TODOS') count++;
+    return count;
+  }, [searchTerm, filterCondicion, filterTipo, filterServiceStatus]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilterCondicion('');
+    setFilterTipo('');
+    setFilterServiceStatus('TODOS');
+  };
+
   // Filtered & Sorted Moviles
   const processedMoviles = useMemo(() => {
     let list = moviles.filter((m) => {
       if (filterCondicion && m.condicion !== filterCondicion) return false;
+      if (filterTipo && m.tipo !== filterTipo) return false;
+      if (filterServiceStatus !== 'TODOS') {
+        const service = getServiceStatus(m);
+        if (filterServiceStatus === 'VENCIDOS' && service.status !== 'danger') return false;
+        if (filterServiceStatus === 'ALERTA' && service.status !== 'warning') return false;
+        if (filterServiceStatus === 'OK' && service.status !== 'ok') return false;
+      }
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim();
         const idMatch = m.identificador.toLowerCase().includes(q);
@@ -117,15 +152,19 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
     });
 
     return list;
-  }, [moviles, filterCondicion, searchTerm, sortField, sortAsc]);
+  }, [moviles, filterCondicion, filterTipo, filterServiceStatus, searchTerm, sortField, sortAsc]);
 
   // Actions
   const handleSaveMovil = async (movil: Movil) => {
+    const movilToSave: Movil = {
+      ...movil,
+      delegacionId: movil.delegacionId || delegacionId || 1
+    };
     const db = (await import('../../db/dexieDb')).db;
-    if (movil.id) {
-      await db.moviles.put(movil);
+    if (movilToSave.id) {
+      await db.moviles.put(movilToSave);
     } else {
-      await db.moviles.add(movil);
+      await db.moviles.add(movilToSave);
     }
     sgpManager.notify();
     onRefresh();
@@ -202,68 +241,151 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
         </div>
       </div>
 
-      {/* View Mode Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-1">
-            Modo de Vista:
-          </span>
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+      {/* Filter and Search Bar with Hide/Show Toggle */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setViewMode('cards')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                viewMode === 'cards'
-                  ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
             >
-              1. Tarjetas
+              <Filter className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-mono">
+                  {activeFiltersCount}
+                </span>
+              )}
             </button>
-            <button
-              onClick={() => setViewMode('compact')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                viewMode === 'compact'
-                  ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              2. Lista Compacta
-            </button>
-            <button
-              onClick={() => setViewMode('detailed')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                viewMode === 'detailed'
-                  ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              3. Tabla Detallada
-            </button>
-            <button
-              onClick={() => setViewMode('byStatus')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                viewMode === 'byStatus'
-                  ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              4. Por Estado
-            </button>
+
+            {activeFiltersCount > 0 && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold underline underline-offset-2 ml-1"
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-slate-400 text-xs">
+              Mostrando <strong className="text-slate-700 dark:text-slate-200 font-mono">{processedMoviles.length}</strong> de <span className="font-mono">{moviles.length}</span> móviles
+            </span>
+
+            {/* View Switcher: 4 View Modes */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+              <button
+                onClick={() => setViewMode('cards')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  viewMode === 'cards'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Tarjetas
+              </button>
+              <button
+                onClick={() => setViewMode('compact')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  viewMode === 'compact'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Compacta
+              </button>
+              <button
+                onClick={() => setViewMode('detailed')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  viewMode === 'detailed'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Tabla
+              </button>
+              <button
+                onClick={() => setViewMode('byStatus')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  viewMode === 'byStatus'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                Por Estado
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-1 max-w-xs">
-          <div className="relative w-full">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar móvil o patente..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
-            />
+        {showFilters && (
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transition-all">
+            <div className="relative sm:col-span-4">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar móvil, patente, marca o modelo..."
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <select
+                value={filterCondicion}
+                onChange={(e) => setFilterCondicion(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-medium"
+              >
+                <option value="">Todas las Condiciones</option>
+                <option value="En Servicio">En Servicio</option>
+                <option value="En Reparación">En Reparación</option>
+                <option value="Fuera de Servicio">Fuera de Servicio</option>
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <select
+                value={filterTipo}
+                onChange={(e) => setFilterTipo(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+              >
+                <option value="">Todos los Tipos</option>
+                {tiposMovil.map((t, idx) => (
+                  <option key={idx} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <select
+                value={filterServiceStatus}
+                onChange={(e) => setFilterServiceStatus(e.target.value as any)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-medium"
+              >
+                <option value="TODOS">Estado del Service: Todos</option>
+                <option value="VENCIDOS">¡Servis Vencido!</option>
+                <option value="ALERTA">Alerta de Service (&lt;500km)</option>
+                <option value="OK">Service al Día</option>
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <select
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value as any)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-medium"
+              >
+                <option value="identificador">Ordenar por Móvil</option>
+                <option value="kmActual">Ordenar por Kilometraje</option>
+                <option value="dominio">Ordenar por Patente</option>
+              </select>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* RENDER VIEWS */}
@@ -617,6 +739,7 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
         onSave={handleSaveMovil}
         initialData={editingMovil}
         catalogs={catalogs}
+        delegacionId={delegacionId}
       />
 
       {/* MODAL REPARACIONES MECANICAS */}

@@ -26,6 +26,7 @@ interface ExpedienteFormModalProps {
   initialData?: Expediente | null;
   catalogs: DynamicCatalog[];
   personalList: Personal[];
+  delegacionId?: number;
 }
 
 export const ExpedienteFormModal: React.FC<ExpedienteFormModalProps> = ({
@@ -34,7 +35,8 @@ export const ExpedienteFormModal: React.FC<ExpedienteFormModalProps> = ({
   onSave,
   initialData,
   catalogs,
-  personalList
+  personalList,
+  delegacionId
 }) => {
   // Catalogs helpers
   const juzgados = catalogs.filter((c) => c.category === 'Juzgado').map((c) => c.value);
@@ -369,7 +371,7 @@ export const ExpedienteFormModal: React.FC<ExpedienteFormModalProps> = ({
       personalRecibeAjeno: condicionElevacion === 'Entregado' ? personalRecibeAjeno : '',
       observaciones: observaciones || resumen,
       customFieldsJson: JSON.stringify(customFields),
-      delegacionId: 1
+      delegacionId: initialData?.delegacionId || delegacionId || 1
     };
 
     // Auto-save any newly entered persons to the Personas module

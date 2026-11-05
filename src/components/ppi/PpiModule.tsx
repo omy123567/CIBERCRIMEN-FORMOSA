@@ -43,6 +43,8 @@ interface PpiModuleProps {
   personalList: Personal[];
   catalogs: DynamicCatalog[];
   institutionalConfig: InstitutionalConfig;
+  delegacionId?: number;
+  onNavigate?: (module: string) => void;
   onRefresh: () => void;
   onOpenExpediente?: (exp: Expediente) => void;
 }
@@ -52,6 +54,8 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
   personalList,
   catalogs,
   institutionalConfig,
+  delegacionId,
+  onNavigate,
   onRefresh,
   onOpenExpediente
 }) => {
@@ -60,7 +64,26 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
   const [filterJuzgado, setFilterJuzgado] = useState('');
   const [filterEstado, setFilterEstado] = useState('');
   const [filterOficio, setFilterOficio] = useState('');
+  const [showFilters, setShowFilters] = useState(true);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filterJerarquia) count++;
+    if (filterJuzgado) count++;
+    if (filterEstado) count++;
+    if (filterOficio) count++;
+    return count;
+  }, [searchTerm, filterJerarquia, filterJuzgado, filterEstado, filterOficio]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilterJerarquia('');
+    setFilterJuzgado('');
+    setFilterEstado('');
+    setFilterOficio('');
+  };
 
   // Modals
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -162,6 +185,7 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
       anio: new Date().getFullYear().toString(),
       tipoOficio: 'Oficio Judicial',
       tipoRequerimiento: 'Resguardo de Evidencia Digital',
+      delegacionId: delegacionId || 1,
       customFieldsJson: JSON.stringify({
         isPPI: true,
         ppiJerarquia: jerarquias[0] || 'Sargento',
@@ -332,6 +356,33 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Submodule Parent Navigation Breadcrumb */}
+      {onNavigate && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 rounded-2xl text-xs">
+          <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+            <span className="font-semibold text-sky-800 dark:text-sky-300">Módulo Padre:</span>
+            <button
+              onClick={() => onNavigate('expedientes')}
+              className="font-bold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1"
+            >
+              ← Volver a Expedientes & Evidencias
+            </button>
+            <span className="text-slate-400">/</span>
+            <span className="font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-2xs">
+              Submódulo: Causas PPI
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNavigate('personas')}
+              className="text-xs font-semibold px-3 py-1.5 bg-white dark:bg-slate-800 text-sky-700 dark:text-sky-300 hover:bg-sky-100/50 rounded-xl border border-sky-200 dark:border-sky-800 transition-colors"
+            >
+              Ver Submódulo: Personas en Evidencias →
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Institutional Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-sky-900 via-slate-900 to-slate-950 p-6 rounded-3xl text-white shadow-lg border border-sky-800/40">
         <div className="flex items-start gap-4">
@@ -460,84 +511,43 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
 
       {/* Filter and Search Bar */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-          {/* Search Query */}
-          <div className="relative sm:col-span-2">
-            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por efectivo (Apellido, Plaza, DNI), Expediente N°, juzgado..."
-              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-            />
-          </div>
-
-          {/* Filter Jerarquía */}
-          <div>
-            <select
-              value={filterJerarquia}
-              onChange={(e) => setFilterJerarquia(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
-            >
-              <option value="">Todas las Jerarquías</option>
-              {jerarquias.map((j, idx) => (
-                <option key={idx} value={j}>{j}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Filter Juzgado */}
-          <div>
-            <select
-              value={filterJuzgado}
-              onChange={(e) => setFilterJuzgado(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
-            >
-              <option value="">Todos los Juzgados</option>
-              {juzgados.map((j, idx) => (
-                <option key={idx} value={j}>{j}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Filter Oficio Status */}
-          <div>
-            <select
-              value={filterOficio}
-              onChange={(e) => setFilterOficio(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
-            >
-              <option value="">Con y Sin Oficio</option>
-              <option value="CON_OFICIO">Solo Con Oficio Formal</option>
-              <option value="SIN_OFICIO">Solo Falta de Oficio (Preliminar)</option>
-            </select>
-          </div>
-        </div>
-
-        {/* View mode toggle and status chips */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-400 font-semibold mr-1">Estado:</span>
-            {['', 'Iniciado', 'En Trámite', 'Diligenciado', 'Elevado'].map((st) => (
-              <button
-                key={st}
-                onClick={() => setFilterEstado(st)}
-                className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors ${
-                  filterEstado === st
-                    ? 'bg-sky-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200'
-                }`}
-              >
-                {st === '' ? 'Todos' : st}
-              </button>
-            ))}
-          </div>
-
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-slate-400 font-mono text-[11px]">
-              {filteredList.length} causa(s) encontradas
-            </span>
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                showFilters
+                  ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border-sky-200 dark:border-sky-800'
+                  : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+              }`}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              <span>{showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-5 h-5 rounded-full bg-sky-600 text-white text-[10px] flex items-center justify-center font-black">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
+
+            {activeFiltersCount > 0 && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Limpiar filtros</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Mostrando <strong className="text-slate-900 dark:text-white">{filteredList.length}</strong> de <strong className="text-slate-900 dark:text-white">{ppiExpedientes.length}</strong> causas PPI
+            </div>
+
             <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
               <button
                 onClick={() => setViewMode('cards')}
@@ -562,6 +572,83 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
             </div>
           </div>
         </div>
+
+        {showFilters && (
+          <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800 animate-in fade-in duration-200">
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+              {/* Search Query */}
+              <div className="relative sm:col-span-2">
+                <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar por efectivo (Apellido, Plaza, DNI), Expediente N°, juzgado..."
+                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              {/* Filter Jerarquía */}
+              <div>
+                <select
+                  value={filterJerarquia}
+                  onChange={(e) => setFilterJerarquia(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+                >
+                  <option value="">Todas las Jerarquías</option>
+                  {jerarquias.map((j, idx) => (
+                    <option key={idx} value={j}>{j}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter Juzgado */}
+              <div>
+                <select
+                  value={filterJuzgado}
+                  onChange={(e) => setFilterJuzgado(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+                >
+                  <option value="">Todos los Juzgados</option>
+                  {juzgados.map((j, idx) => (
+                    <option key={idx} value={j}>{j}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter Oficio Status */}
+              <div>
+                <select
+                  value={filterOficio}
+                  onChange={(e) => setFilterOficio(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+                >
+                  <option value="">Con y Sin Oficio</option>
+                  <option value="CON_OFICIO">Solo Con Oficio Formal</option>
+                  <option value="SIN_OFICIO">Solo Falta de Oficio (Preliminar)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* View mode toggle and status chips */}
+            <div className="flex items-center gap-1.5 pt-1 text-xs">
+              <span className="text-slate-400 font-semibold mr-1">Estado:</span>
+              {['', 'Iniciado', 'En Trámite', 'Diligenciado', 'Elevado'].map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setFilterEstado(st)}
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors ${
+                    filterEstado === st
+                      ? 'bg-sky-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200'
+                  }`}
+                >
+                  {st === '' ? 'Todos' : st}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Main Content: Cards or Table View */}
@@ -988,10 +1075,14 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
           setEditingExpediente(null);
         }}
         onSave={async (savedExp) => {
-          if (savedExp.id) {
-            await db.expedientes.put(savedExp);
+          const expToSave = {
+            ...savedExp,
+            delegacionId: savedExp.delegacionId || delegacionId || 1
+          };
+          if (expToSave.id) {
+            await db.expedientes.put(expToSave);
           } else {
-            await db.expedientes.add(savedExp);
+            await db.expedientes.add(expToSave);
           }
           sgpManager.notify();
           onRefresh();
@@ -1001,6 +1092,7 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
         initialData={editingExpediente}
         catalogs={catalogs}
         personalList={personalList}
+        delegacionId={delegacionId}
       />
 
       {/* Attachment Zoom Modal */}

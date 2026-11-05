@@ -28,6 +28,8 @@ interface CharlasModuleProps {
   personalList: Personal[];
   catalogs: DynamicCatalog[];
   institutionalConfig: InstitutionalConfig;
+  delegacionId?: number;
+  onNavigate?: (module: string) => void;
   onRefresh: () => void;
 }
 
@@ -38,11 +40,26 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
   personalList,
   catalogs,
   institutionalConfig,
+  delegacionId,
+  onNavigate,
   onRefresh
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLocalidad, setSelectedLocalidad] = useState('');
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (selectedLocalidad) count++;
+    return count;
+  }, [searchTerm, selectedLocalidad]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setSelectedLocalidad('');
+  };
 
   // Form State
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -143,7 +160,7 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
       personalDesignado,
       cantidadAsistentes: Number(cantidadAsistentes) || 0,
       observaciones,
-      delegacionId: 1
+      delegacionId: delegacionId || 1
     };
 
     await db.charlas.add(nuevaCharla);
@@ -241,86 +258,124 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
         </div>
       </div>
 
-      {/* Filter and Mode Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-        <div className="relative col-span-1 sm:col-span-2">
-          <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por tema, institución educativa, disertante o localidad..."
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+      {/* Filter and Mode Bar with Hide/Show Toggle */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
+            >
+              <Filter className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-mono">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
+
+            {activeFiltersCount > 0 && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold underline underline-offset-2 ml-1"
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-slate-400 text-xs">
+              Mostrando <strong className="text-slate-700 dark:text-slate-200 font-mono">{filteredCharlas.length}</strong> de <span className="font-mono">{charlas.length}</span> actividades
+            </span>
+
+            {/* View mode switcher */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+              <button
+                onClick={() => setViewMode('cards')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
+                  viewMode === 'cards'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+                title="Vista de Tarjetas"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Tarjetas</span>
+              </button>
+
+              <button
+                onClick={() => setViewMode('table')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
+                  viewMode === 'table'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+                title="Vista de Tabla"
+              >
+                <TableIcon className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Tabla</span>
+              </button>
+
+              <button
+                onClick={() => setViewMode('byLocation')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
+                  viewMode === 'byLocation'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+                title="Agrupado por Localidad"
+              >
+                <Map className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Por Localidad</span>
+              </button>
+
+              <button
+                onClick={() => setViewMode('byTopic')}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
+                  viewMode === 'byTopic'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+                title="Agrupado por Tema"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Por Tema</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div>
-          <select
-            value={selectedLocalidad}
-            onChange={(e) => setSelectedLocalidad(e.target.value)}
-            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
-          >
-            <option value="">Todas las Localidades</option>
-            {localidades.map((loc, i) => (
-              <option key={i} value={loc}>{loc}</option>
-            ))}
-          </select>
-        </div>
+        {showFilters && (
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transition-all">
+            <div className="relative sm:col-span-8">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar por tema, institución educativa, disertante o localidad..."
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
 
-        {/* View mode switcher */}
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-          <button
-            onClick={() => setViewMode('cards')}
-            className={`flex-1 py-1 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
-              viewMode === 'cards'
-                ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-            title="Vista de Tarjetas"
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Tarjetas</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode('table')}
-            className={`flex-1 py-1 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
-              viewMode === 'table'
-                ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-            title="Vista de Tabla"
-          >
-            <TableIcon className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Tabla</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode('byLocation')}
-            className={`flex-1 py-1 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
-              viewMode === 'byLocation'
-                ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-            title="Agrupado por Localidad"
-          >
-            <MapPin className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Localidad</span>
-          </button>
-
-          <button
-            onClick={() => setViewMode('byTopic')}
-            className={`flex-1 py-1 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1 ${
-              viewMode === 'byTopic'
-                ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-            title="Agrupado por Tema"
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Tema</span>
-          </button>
-        </div>
+            <div className="sm:col-span-4">
+              <select
+                value={selectedLocalidad}
+                onChange={(e) => setSelectedLocalidad(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+              >
+                <option value="">Todas las Localidades</option>
+                {localidades.map((loc, i) => (
+                  <option key={i} value={loc}>{loc}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* VIEW 1: CARDS */}

@@ -114,7 +114,7 @@ export const LicenciasModal: React.FC<LicenciasModalProps> = ({
       periodosDetalleJson,
       fechaSalida: '', // Strictly omitted from UI
       fechaReanudacion: '', // Strictly omitted from UI
-      delegacionId: 1
+      delegacionId: personal.delegacionId || 1
     };
 
     onSaveLicencia(nuevaLicencia);

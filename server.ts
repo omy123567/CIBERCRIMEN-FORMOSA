@@ -200,7 +200,7 @@ function initializeSchema() {
       serieId INTEGER NOT NULL,
       numero INTEGER NOT NULL,
       rangoId TEXT,
-      anio INTEGER NOT NULL,
+      anio INTEGER NOT NULL DEFAULT 2026,
       caratula TEXT NOT NULL,
       asunto TEXT NOT NULL,
       destinatario TEXT NOT NULL,
@@ -212,7 +212,79 @@ function initializeSchema() {
       usuarioAsigno TEXT NOT NULL,
       delegacionId INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS custom_roles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL UNIQUE,
+      descripcion TEXT,
+      canDelete INTEGER NOT NULL DEFAULT 0,
+      allowedModules TEXT NOT NULL,
+      allDelegacionesAccess INTEGER NOT NULL DEFAULT 0,
+      canAdminModules INTEGER NOT NULL DEFAULT 0,
+      isSystem INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT
+    );
   `);
+
+  // Seed default custom roles if empty
+  const countRoles = db.prepare('SELECT count(*) as count FROM custom_roles').get() as { count: number };
+  if (countRoles.count === 0) {
+    const defaultRoles = [
+      {
+        nombre: 'Operador',
+        descripcion: 'Carga de datos operativos, registro de expedientes, personal y consultas',
+        canDelete: 0,
+        allowedModules: JSON.stringify(['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas']),
+        allDelegacionesAccess: 0,
+        canAdminModules: 0,
+        isSystem: 1
+      },
+      {
+        nombre: 'Administrador',
+        descripcion: 'Gestión completa de su Delegación, reportes, usuarios y eliminación de registros',
+        canDelete: 1,
+        allowedModules: JSON.stringify(['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas', 'membrete', 'catalogos', 'respaldos', 'usuarios']),
+        allDelegacionesAccess: 0,
+        canAdminModules: 0,
+        isSystem: 1
+      },
+      {
+        nombre: 'superusuario',
+        descripcion: 'Acceso irrestricto total a todas las delegaciones, configuración y orden de módulos',
+        canDelete: 1,
+        allowedModules: JSON.stringify(['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas', 'membrete', 'catalogos', 'respaldos', 'usuarios', 'modulos']),
+        allDelegacionesAccess: 1,
+        canAdminModules: 1,
+        isSystem: 1
+      },
+      {
+        nombre: 'Jefe de Turno',
+        descripcion: 'Supervisión de guardia, asignación de folios, expedientes y recargos de servicio',
+        canDelete: 0,
+        allowedModules: JSON.stringify(['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas']),
+        allDelegacionesAccess: 0,
+        canAdminModules: 0,
+        isSystem: 0
+      },
+      {
+        nombre: 'Perito Forense',
+        descripcion: 'Especialista de laboratorio y gabinete con acceso a evidencias, informes y numerario',
+        canDelete: 0,
+        allowedModules: JSON.stringify(['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'charlas']),
+        allDelegacionesAccess: 0,
+        canAdminModules: 0,
+        isSystem: 0
+      }
+    ];
+
+    const insertRole = db.prepare(`
+      INSERT INTO custom_roles (nombre, descripcion, canDelete, allowedModules, allDelegacionesAccess, canAdminModules, isSystem, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `);
+    for (const r of defaultRoles) {
+      insertRole.run(r.nombre, r.descripcion, r.canDelete, r.allowedModules, r.allDelegacionesAccess, r.canAdminModules, r.isSystem);
+    }
+  }
 
   // Seed default delegations if empty
   const countDel = db.prepare('SELECT count(*) as count FROM delegaciones').get() as { count: number };
@@ -377,8 +449,11 @@ function initializeSchema() {
         p.delegacionId || 1
       );
     }
+  }
 
-    // Moviles
+  // Moviles independent seeding check
+  const countMov = db.prepare('SELECT count(*) as count FROM moviles').get() as { count: number };
+  if (countMov.count === 0 && initialSgpBackup.moviles) {
     const insertMov = db.prepare(`
       INSERT INTO moviles (identificador, marca, modelo, dominio, chasis, motor, condicion, kmActual, kmUltimoService, kmProximoService, vencimientoRto, vencimientoSeguro, companiaSeguro, numeroPoliza, observaciones, delegacionId)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -543,7 +618,7 @@ function setupApiRoutes(app: express.Express) {
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
-      engine: 'SisPol SQLite Central Server',
+      engine: 'S.I.S.D.I.C. SQLite Central Server',
       database: DB_PATH,
       timestamp: new Date().toISOString()
     });
@@ -699,6 +774,86 @@ function setupApiRoutes(app: express.Express) {
   app.delete('/api/users/:id', (req: Request, res: Response) => {
     const id = parseInt(req.params.id, 10);
     db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  // Roles y Perfiles de Permisos
+  app.get('/api/roles', (_req: Request, res: Response) => {
+    const rows = db.prepare('SELECT * FROM custom_roles ORDER BY id ASC').all() as any[];
+    const parsed = rows.map((r) => ({
+      id: r.id,
+      nombre: r.nombre,
+      descripcion: r.descripcion,
+      canDelete: Boolean(r.canDelete),
+      allowedModules: typeof r.allowedModules === 'string'
+        ? (() => { try { return JSON.parse(r.allowedModules); } catch { return []; } })()
+        : (Array.isArray(r.allowedModules) ? r.allowedModules : []),
+      allDelegacionesAccess: Boolean(r.allDelegacionesAccess),
+      canAdminModules: Boolean(r.canAdminModules),
+      isSystem: Boolean(r.isSystem),
+      createdAt: r.createdAt
+    }));
+    res.json(parsed);
+  });
+
+  app.post('/api/roles', (req: Request, res: Response) => {
+    const r = req.body;
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO custom_roles (nombre, descripcion, canDelete, allowedModules, allDelegacionesAccess, canAdminModules, isSystem, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `);
+      const info = stmt.run(
+        r.nombre,
+        r.descripcion || '',
+        r.canDelete ? 1 : 0,
+        JSON.stringify(r.allowedModules || []),
+        r.allDelegacionesAccess ? 1 : 0,
+        r.canAdminModules ? 1 : 0,
+        r.isSystem ? 1 : 0
+      );
+      res.json({ id: info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/roles/:id', (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    const r = req.body;
+    try {
+      const stmt = db.prepare(`
+        UPDATE custom_roles SET
+          nombre = ?,
+          descripcion = ?,
+          canDelete = ?,
+          allowedModules = ?,
+          allDelegacionesAccess = ?,
+          canAdminModules = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        r.nombre,
+        r.descripcion || '',
+        r.canDelete ? 1 : 0,
+        JSON.stringify(r.allowedModules || []),
+        r.allDelegacionesAccess ? 1 : 0,
+        r.canAdminModules ? 1 : 0,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/roles/:id', (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    const existing = db.prepare('SELECT isSystem FROM custom_roles WHERE id = ?').get(id) as { isSystem?: number } | undefined;
+    if (existing?.isSystem) {
+      return res.status(400).json({ error: 'No es posible eliminar roles base del sistema' });
+    }
+    db.prepare('DELETE FROM custom_roles WHERE id = ?').run(id);
     res.json({ success: true });
   });
 
@@ -1032,6 +1187,8 @@ function setupApiRoutes(app: express.Express) {
 
   app.post('/api/numerario/folios', (req: Request, res: Response) => {
     const f = req.body;
+    const anioVal = Number(f.anio) || new Date().getFullYear();
+    const caratulaVal = f.caratula || `Folio N° ${f.numero}/${anioVal}`;
     const stmt = db.prepare(`
       INSERT INTO folios_numerario (serieId, numero, rangoId, anio, caratula, asunto, destinatario, solicitante, observaciones, tipoDocumento, fecha, hora, usuarioAsigno, delegacionId)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1040,19 +1197,33 @@ function setupApiRoutes(app: express.Express) {
       f.serieId,
       f.numero,
       f.rangoId || null,
-      f.anio,
-      f.caratula,
-      f.asunto,
-      f.destinatario,
+      anioVal,
+      caratulaVal,
+      f.asunto || '',
+      f.destinatario || '',
       f.solicitante || null,
       f.observaciones || null,
-      f.tipoDocumento,
-      f.fecha,
-      f.hora,
-      f.usuarioAsigno,
-      f.delegacionId
+      f.tipoDocumento || 'Oficio',
+      f.fecha || new Date().toLocaleDateString('es-AR'),
+      f.hora || new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+      f.usuarioAsigno || 'sistema',
+      f.delegacionId || 1
     );
     res.json({ id: info.lastInsertRowid, success: true });
+  });
+
+  app.put('/api/numerario/folios/:id', (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    const f = req.body;
+    db.prepare(`
+      UPDATE folios_numerario
+      SET asunto = COALESCE(?, asunto),
+          destinatario = COALESCE(?, destinatario),
+          solicitante = COALESCE(?, solicitante),
+          observaciones = COALESCE(?, observaciones)
+      WHERE id = ?
+    `).run(f.asunto, f.destinatario, f.solicitante, f.observaciones, id);
+    res.json({ success: true });
   });
 
   app.post('/api/numerario/folios/range', (req: Request, res: Response) => {
@@ -1068,21 +1239,23 @@ function setupApiRoutes(app: express.Express) {
 
     const tx = db.transaction((list: any[]) => {
       for (const f of list) {
+        const anioVal = Number(f.anio) || new Date().getFullYear();
+        const caratulaVal = f.caratula || `Folio N° ${f.numero}/${anioVal}`;
         insertStmt.run(
           f.serieId,
           f.numero,
           f.rangoId || null,
-          f.anio,
-          f.caratula,
-          f.asunto,
-          f.destinatario,
+          anioVal,
+          caratulaVal,
+          f.asunto || '',
+          f.destinatario || '',
           f.solicitante || null,
           f.observaciones || null,
-          f.tipoDocumento,
-          f.fecha,
-          f.hora,
-          f.usuarioAsigno,
-          f.delegacionId
+          f.tipoDocumento || 'Oficio',
+          f.fecha || new Date().toLocaleDateString('es-AR'),
+          f.hora || new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+          f.usuarioAsigno || 'sistema',
+          f.delegacionId || 1
         );
       }
     });
@@ -1107,6 +1280,83 @@ function setupApiRoutes(app: express.Express) {
     res.json({ success: true });
   });
 
+  // Personas Investigadas / Imputadas en Evidencias
+  app.get('/api/personas', (_req: Request, res: Response) => {
+    const rows = db.prepare('SELECT * FROM personas ORDER BY id DESC').all() as any[];
+    const parsed = rows.map((p) => ({
+      ...p,
+      expedientesVinculados: typeof p.expedientesVinculados === 'string'
+        ? (() => { try { return JSON.parse(p.expedientesVinculados); } catch { return []; } })()
+        : (Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : [])
+    }));
+    res.json(parsed);
+  });
+
+  app.post('/api/personas', (req: Request, res: Response) => {
+    const p = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO personas (apellidoNombre, dni, observaciones, fechaRegistro, expedientesVinculados, delegacionId)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      p.apellidoNombre,
+      p.dni,
+      p.observaciones || null,
+      p.fechaRegistro || new Date().toLocaleDateString('es-AR'),
+      JSON.stringify(Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : []),
+      p.delegacionId || null
+    );
+    res.json({ id: info.lastInsertRowid, success: true });
+  });
+
+  app.put('/api/personas/:id', (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    const p = req.body;
+    const stmt = db.prepare(`
+      UPDATE personas SET
+        apellidoNombre = ?,
+        dni = ?,
+        observaciones = ?,
+        expedientesVinculados = ?,
+        delegacionId = ?
+      WHERE id = ?
+    `);
+    stmt.run(
+      p.apellidoNombre,
+      p.dni,
+      p.observaciones || null,
+      JSON.stringify(Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : []),
+      p.delegacionId || null,
+      id
+    );
+    res.json({ success: true });
+  });
+
+  app.delete('/api/personas/:id', (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    db.prepare('DELETE FROM personas WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
+  // Catálogos Dinámicos Compartidos
+  app.get('/api/dynamic-catalogs', (_req: Request, res: Response) => {
+    const rows = db.prepare('SELECT * FROM dynamic_catalogs ORDER BY category ASC, value ASC').all();
+    res.json(rows);
+  });
+
+  app.post('/api/dynamic-catalogs', (req: Request, res: Response) => {
+    const { category, value, delegacionId } = req.body;
+    const stmt = db.prepare('INSERT INTO dynamic_catalogs (category, value, delegacionId) VALUES (?, ?, ?)');
+    const info = stmt.run(category, value, delegacionId || null);
+    res.json({ id: info.lastInsertRowid, success: true });
+  });
+
+  app.delete('/api/dynamic-catalogs/:id', (req: Request, res: Response) => {
+    const id = parseInt(req.params.id, 10);
+    db.prepare('DELETE FROM dynamic_catalogs WHERE id = ?').run(id);
+    res.json({ success: true });
+  });
+
   // Sync All / Full State Endpoint
   app.get('/api/sync/all', (_req: Request, res: Response) => {
     const expedientes = db.prepare('SELECT * FROM expedientes ORDER BY id ASC').all();
@@ -1116,11 +1366,26 @@ function setupApiRoutes(app: express.Express) {
     const recargos = db.prepare('SELECT * FROM recargos ORDER BY id ASC').all();
     const charlas = db.prepare('SELECT * FROM charlas ORDER BY id ASC').all();
     const licencias = db.prepare('SELECT * FROM licencias ORDER BY id ASC').all();
-    const personas = db.prepare('SELECT * FROM personas ORDER BY id ASC').all();
+    const personas = db.prepare('SELECT * FROM personas ORDER BY id ASC').all().map((p: any) => ({
+      ...p,
+      expedientesVinculados: typeof p.expedientesVinculados === 'string'
+        ? (() => { try { return JSON.parse(p.expedientesVinculados); } catch { return []; } })()
+        : (Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : [])
+    }));
     const dynamicCatalogs = db.prepare('SELECT * FROM dynamic_catalogs ORDER BY id ASC').all();
     const delegaciones = db.prepare('SELECT * FROM delegaciones ORDER BY id ASC').all();
     const seriesNumerario = db.prepare('SELECT * FROM series_numerario ORDER BY id ASC').all();
     const foliosNumerario = db.prepare('SELECT * FROM folios_numerario ORDER BY id ASC').all();
+    const roles = db.prepare('SELECT * FROM custom_roles ORDER BY id ASC').all().map((r: any) => ({
+      ...r,
+      canDelete: Boolean(r.canDelete),
+      allDelegacionesAccess: Boolean(r.allDelegacionesAccess),
+      canAdminModules: Boolean(r.canAdminModules),
+      isSystem: Boolean(r.isSystem),
+      allowedModules: typeof r.allowedModules === 'string'
+        ? (() => { try { return JSON.parse(r.allowedModules); } catch { return []; } })()
+        : (Array.isArray(r.allowedModules) ? r.allowedModules : [])
+    }));
 
     res.json({
       expedientes,
@@ -1134,7 +1399,8 @@ function setupApiRoutes(app: express.Express) {
       dynamicCatalogs,
       delegaciones,
       seriesNumerario,
-      foliosNumerario
+      foliosNumerario,
+      roles
     });
   });
 

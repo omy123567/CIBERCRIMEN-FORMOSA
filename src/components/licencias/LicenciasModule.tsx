@@ -28,6 +28,8 @@ interface LicenciasModuleProps {
   licencias: Licencia[];
   catalogs: DynamicCatalog[];
   institutionalConfig: InstitutionalConfig;
+  delegacionId?: number;
+  onNavigate?: (module: string) => void;
   onRefresh: () => void;
   anioBase?: number;
 }
@@ -37,13 +39,30 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
   licencias,
   catalogs,
   institutionalConfig,
+  delegacionId,
+  onNavigate,
   onRefresh,
   anioBase = 2026
 }) => {
   const [activeTab, setActiveTab] = useState<'cuatrienios' | 'historial'>('cuatrienios');
+  const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterGrupo, setFilterGrupo] = useState('');
   const [filterEstado, setFilterEstado] = useState<'TODOS' | 'CON_SALDO' | 'SIN_SALDO' | 'CON_VENCIDAS'>('TODOS');
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filterGrupo) count++;
+    if (filterEstado !== 'TODOS') count++;
+    return count;
+  }, [searchTerm, filterGrupo, filterEstado]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilterGrupo('');
+    setFilterEstado('TODOS');
+  };
 
   // Modals
   const [selectedForLicencia, setSelectedForLicencia] = useState<Personal | null>(null);
@@ -197,6 +216,28 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Submodule Parent Navigation Breadcrumb */}
+      {onNavigate && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-2xl text-xs">
+          <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+            <span className="font-semibold text-blue-900 dark:text-blue-200">Módulo Padre:</span>
+            <button
+              onClick={() => onNavigate('personal')}
+              className="font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+            >
+              ← Volver a Personal & Legajos
+            </button>
+            <span className="text-slate-400">/</span>
+            <span className="font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-2xs">
+              Submódulo: Licencias & Cuatrienios
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">Gestión especializada de descansos y licencias reglamentarias</span>
+          </div>
+        </div>
+      )}
+
       {/* Module Title */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -259,44 +300,80 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
 
       {activeTab === 'cuatrienios' && (
         <div className="space-y-4">
-          {/* Filter Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-            <div className="relative col-span-1 sm:col-span-2">
-              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar por apellido, nombre, DNI o plaza..."
-                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+          {/* Filter Bar with Hide/Show Toggle */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
+                >
+                  <Filter className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>{showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}</span>
+                  {activeFiltersCount > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-mono">
+                      {activeFiltersCount}
+                    </span>
+                  )}
+                </button>
+
+                {activeFiltersCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearFilters}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold underline underline-offset-2 ml-1"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+
+              <div className="text-slate-400 text-xs">
+                Mostrando <strong className="text-slate-700 dark:text-slate-200 font-mono">{filteredList.length}</strong> de <span className="font-mono">{personalWithCuatrienio.length}</span> efectivos
+              </div>
             </div>
 
-            <div>
-              <select
-                value={filterGrupo}
-                onChange={(e) => setFilterGrupo(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
-              >
-                <option value="">Todas las Secciones</option>
-                {grupos.map((g, i) => (
-                  <option key={i} value={g}>{g}</option>
-                ))}
-              </select>
-            </div>
+            {showFilters && (
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transition-all">
+                <div className="relative sm:col-span-6">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar por apellido, nombre, DNI o plaza..."
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
 
-            <div>
-              <select
-                value={filterEstado}
-                onChange={(e) => setFilterEstado(e.target.value as any)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
-              >
-                <option value="TODOS">Todos los Estados</option>
-                <option value="CON_SALDO">Con Saldo Disponible</option>
-                <option value="SIN_SALDO">Sin Saldo (Agotado)</option>
-                <option value="CON_VENCIDAS">Con Períodos Vencidos</option>
-              </select>
-            </div>
+                <div className="sm:col-span-3">
+                  <select
+                    value={filterGrupo}
+                    onChange={(e) => setFilterGrupo(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+                  >
+                    <option value="">Todas las Secciones</option>
+                    {grupos.map((g, i) => (
+                      <option key={i} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <select
+                    value={filterEstado}
+                    onChange={(e) => setFilterEstado(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-medium"
+                  >
+                    <option value="TODOS">Todos los Estados de Licencia</option>
+                    <option value="CON_SALDO">Con Saldo Disponible</option>
+                    <option value="SIN_SALDO">Sin Saldo (Agotado)</option>
+                    <option value="CON_VENCIDAS">Con Períodos Vencidos</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Cuatrienios Table */}

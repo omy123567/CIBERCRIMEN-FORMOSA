@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Settings, Plus, Trash2, Tag, Shield } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Settings, Plus, Trash2, Tag, Shield, Search, Filter } from 'lucide-react';
 import { DynamicCatalog, InstitutionalConfig } from '../../types/sgp';
 import { sgpManager, db } from '../../db/dexieDb';
 import { MembreteEditorModule } from './MembreteEditorModule';
@@ -7,6 +7,8 @@ import { MembreteEditorModule } from './MembreteEditorModule';
 interface CatalogsModuleProps {
   catalogs: DynamicCatalog[];
   institutionalConfig: InstitutionalConfig;
+  delegacionId?: number;
+  onNavigate?: (module: string) => void;
   onRefresh: () => void;
 }
 
@@ -32,23 +34,35 @@ const REQUIRED_CATEGORIES = [
 export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
   catalogs,
   institutionalConfig,
+  delegacionId,
+  onNavigate,
   onRefresh
 }) => {
   const [activeTab, setActiveTab] = useState<'catalogos' | 'membrete'>('catalogos');
   const [activeCategory, setActiveCategory] = useState<string>('Juzgado');
   const [newValue, setNewValue] = useState('');
+  const [searchItem, setSearchItem] = useState('');
+  const [showFilters, setShowFilters] = useState(true);
 
-  // Active Category Items
-  const items = catalogs.filter((c) => c.category === activeCategory);
+  // Active Category Items filtered by search
+  const allCategoryItems = useMemo(() => {
+    return catalogs.filter((c) => c.category === activeCategory);
+  }, [catalogs, activeCategory]);
+
+  const items = useMemo(() => {
+    if (!searchItem.trim()) return allCategoryItems;
+    const q = searchItem.toLowerCase().trim();
+    return allCategoryItems.filter((c) => c.value.toLowerCase().includes(q));
+  }, [allCategoryItems, searchItem]);
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newValue.trim()) return;
 
+    // Save as globally shared catalog item
     await db.dynamicCatalogs.add({
       category: activeCategory,
-      value: newValue.trim(),
-      delegacionId: 1
+      value: newValue.trim()
     });
 
     setNewValue('');
@@ -118,11 +132,16 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
             <div className="flex items-center gap-2">
               <Tag className="w-5 h-5 text-blue-600" />
               <div>
-                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Catálogos Dinámicos ({REQUIRED_CATEGORIES.length} Categorías Operativas)
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Catálogos Dinámicos ({REQUIRED_CATEGORIES.length} Categorías Operativas)
+                  </h2>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                    🌍 Compartido con Todos los Usuarios
+                  </span>
+                </div>
                 <span className="text-[11px] text-slate-400">
-                  Seleccione una categoría para agregar o dar de baja valores utilizados en formularios oficiales
+                  Valores universales unificados: cualquier opción agregada aquí está disponible para todos los operadores y delegaciones policiales.
                 </span>
               </div>
             </div>
@@ -171,6 +190,53 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
               <span>Añadir a Catálogo</span>
             </button>
           </form>
+          {/* Search Filter for Catalog Items with Hide/Show Toggle */}
+          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
+                >
+                  <Filter className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>{showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}</span>
+                  {searchItem.trim() && (
+                    <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-mono">
+                      1
+                    </span>
+                  )}
+                </button>
+
+                {searchItem.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchItem('')}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold underline underline-offset-2 ml-1"
+                  >
+                    Limpiar filtro
+                  </button>
+                )}
+              </div>
+
+              <div className="text-slate-400 text-xs">
+                Mostrando <strong className="text-slate-700 dark:text-slate-200 font-mono">{items.length}</strong> de <span className="font-mono">{allCategoryItems.length}</span> en «{activeCategory}»
+              </div>
+            </div>
+
+            {showFilters && (
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  value={searchItem}
+                  onChange={(e) => setSearchItem(e.target.value)}
+                  placeholder={`Buscar en las opciones de "${activeCategory}"...`}
+                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
+          </div>
 
           {/* Items List */}
           <div className="border border-slate-200 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-800/60 max-h-[500px] overflow-y-auto">

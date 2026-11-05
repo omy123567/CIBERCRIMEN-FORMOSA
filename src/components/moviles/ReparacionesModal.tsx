@@ -44,7 +44,7 @@ export const ReparacionesModal: React.FC<ReparacionesModalProps> = ({
       costoTotal: Number(costoTotal) || 0,
       kmMomento: kmMomento || movil.kmActual,
       observaciones,
-      delegacionId: 1
+      delegacionId: movil.delegacionId || 1
     };
 
     onSaveReparacion(nuevaReparacion);

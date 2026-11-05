@@ -71,7 +71,7 @@ export async function exportDatabaseToZip(database: AppDatabase): Promise<void> 
 
   // Add Manifest / Readme
   const manifest = {
-    system: 'Sis.Pol. - Sistema de Gestión Policial y Operativa',
+    system: 'S.I.S.D.I.C. - Sistema Integral de Seguridad y Delitos Informáticos Complejos',
     exportedAt: new Date().toISOString(),
     version: '1.0.0',
     stats: {

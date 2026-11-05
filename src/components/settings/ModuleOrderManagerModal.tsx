@@ -16,9 +16,9 @@ import { NavModuleItem } from '../../types/sgp';
 export const DEFAULT_NAV_MODULES: NavModuleItem[] = [
   { id: 'dashboard', label: 'Dashboard Ejecutivo', iconName: 'BarChart3', order: 1, enabled: true, parentModuleId: null },
   { id: 'expedientes', label: 'Expedientes & Evidencias', iconName: 'FileText', order: 2, enabled: true, parentModuleId: null },
-  { id: 'numerario', label: 'Numerario & Folios', iconName: 'Hash', order: 3, enabled: true, parentModuleId: null },
-  { id: 'ppi', label: 'Causas PPI (Policial)', iconName: 'ShieldAlert', order: 4, enabled: true, parentModuleId: null },
-  { id: 'personas', label: 'Personas (Evidencias)', iconName: 'UserCheck', order: 5, enabled: true, parentModuleId: 'expedientes' },
+  { id: 'ppi', label: 'Causas PPI (Policial)', iconName: 'ShieldAlert', order: 3, enabled: true, parentModuleId: 'expedientes' },
+  { id: 'personas', label: 'Personas (Evidencias)', iconName: 'UserCheck', order: 4, enabled: true, parentModuleId: 'expedientes' },
+  { id: 'numerario', label: 'Numerario & Folios', iconName: 'Hash', order: 5, enabled: true, parentModuleId: null },
   { id: 'personal', label: 'Personal & Legajos', iconName: 'Users', order: 6, enabled: true, parentModuleId: null },
   { id: 'licencias', label: 'Licencias & Cuatrienio', iconName: 'Calendar', order: 7, enabled: true, parentModuleId: 'personal' },
   { id: 'moviles', label: 'Parque Automotor', iconName: 'Car', order: 8, enabled: true, parentModuleId: null },

@@ -184,8 +184,8 @@ export default function App() {
       recargos: allData.recargos.filter((rc) => (rc.delegacionId || 1) === activeDelegacionId),
       charlas: allData.charlas.filter((c) => (c.delegacionId || 1) === activeDelegacionId),
       licencias: allData.licencias.filter((l) => (l.delegacionId || 1) === activeDelegacionId),
-      personas: (allData.personas || []).filter((p) => !p.delegacionId || p.delegacionId === activeDelegacionId),
-      dynamicCatalogs: allData.dynamicCatalogs.filter((c) => !c.delegacionId || c.delegacionId === activeDelegacionId),
+      personas: allData.personas || [],
+      dynamicCatalogs: allData.dynamicCatalogs, // Compartidos globalmente para todos los usuarios y delegaciones
       dynamicFields: allData.dynamicFields
     };
   }, [allData, activeDelegacionId]);
@@ -197,7 +197,7 @@ export default function App() {
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-semibold tracking-wide text-slate-300">
-            Iniciando {institutionalConfig.systemName || 'SGP SisPol'} (Policía de Formosa)...
+            Iniciando {institutionalConfig.systemName || 'S.I.S.D.I.C.'} (Policía de Formosa)...
           </span>
         </div>
       </div>
@@ -293,6 +293,8 @@ export default function App() {
               catalogs={filteredData.dynamicCatalogs}
               personalList={filteredData.personal}
               institutionalConfig={institutionalConfig}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
               canDelete={canDelete}
             />
@@ -313,6 +315,8 @@ export default function App() {
               personalList={filteredData.personal}
               catalogs={filteredData.dynamicCatalogs}
               institutionalConfig={institutionalConfig}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
             />
           )}
@@ -321,6 +325,8 @@ export default function App() {
             <PersonasModule
               personas={filteredData.personas || []}
               expedientes={filteredData.expedientes}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
             />
           )}
@@ -331,6 +337,8 @@ export default function App() {
               expedientes={filteredData.expedientes}
               catalogs={filteredData.dynamicCatalogs}
               institutionalConfig={institutionalConfig}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
               onNavigateToPpi={() => setCurrentModule('ppi')}
             />
@@ -342,6 +350,8 @@ export default function App() {
               licencias={filteredData.licencias}
               catalogs={filteredData.dynamicCatalogs}
               institutionalConfig={institutionalConfig}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
               anioBase={parseInt(selectedYear, 10) || 2026}
             />
@@ -353,6 +363,8 @@ export default function App() {
               reparaciones={filteredData.reparaciones}
               catalogs={filteredData.dynamicCatalogs}
               institutionalConfig={institutionalConfig}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
             />
           )}
@@ -363,6 +375,8 @@ export default function App() {
               personalList={filteredData.personal}
               catalogs={filteredData.dynamicCatalogs}
               institutionalConfig={institutionalConfig}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
             />
           )}
@@ -373,6 +387,8 @@ export default function App() {
               personalList={filteredData.personal}
               catalogs={filteredData.dynamicCatalogs}
               institutionalConfig={institutionalConfig}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
             />
           )}
@@ -388,6 +404,8 @@ export default function App() {
             <CatalogsModule
               catalogs={filteredData.dynamicCatalogs}
               institutionalConfig={institutionalConfig}
+              delegacionId={activeDelegacionId}
+              onNavigate={(mod) => setCurrentModule(mod)}
               onRefresh={refreshData}
             />
           )}
@@ -416,6 +434,7 @@ export default function App() {
         onSave={handleSaveQuickExpediente}
         catalogs={filteredData.dynamicCatalogs}
         personalList={filteredData.personal}
+        delegacionId={activeDelegacionId}
       />
 
       {/* Change Password Modal */}

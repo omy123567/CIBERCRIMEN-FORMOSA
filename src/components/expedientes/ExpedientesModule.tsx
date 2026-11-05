@@ -17,7 +17,8 @@ import {
   ShieldAlert,
   Merge,
   Inbox,
-  AlertCircle
+  AlertCircle,
+  UserCheck
 } from 'lucide-react';
 import { Expediente, DynamicCatalog, Personal, InstitutionalConfig, PersonaInvestigada } from '../../types/sgp';
 import { ExpedienteFormModal } from './ExpedienteFormModal';
@@ -37,6 +38,8 @@ interface ExpedientesModuleProps {
   institutionalConfig: InstitutionalConfig;
   onRefresh: () => void;
   canDelete?: boolean;
+  delegacionId?: number;
+  onNavigate?: (module: string) => void;
 }
 
 export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
@@ -45,17 +48,21 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
   personalList,
   institutionalConfig,
   onRefresh,
-  canDelete = true
+  canDelete = true,
+  delegacionId,
+  onNavigate
 }) => {
 
   // Navigation tab: 'all' | 'faltaOficio' | 'ppi'
   const [activeTab, setActiveTab] = useState<'all' | 'faltaOficio' | 'ppi'>('all');
 
   // Search & Filters
+  const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterReq, setFilterReq] = useState('');
   const [filterJuzgado, setFilterJuzgado] = useState('');
   const [filterEstado, setFilterEstado] = useState('');
+  const [filterAnio, setFilterAnio] = useState('');
   const [filterIncompletos, setFilterIncompletos] = useState<'ALL' | 'ONLY_INCOMPLETE' | 'ONLY_COMPLETE'>('ALL');
   const [filterPPI, setFilterPPI] = useState<'ALL' | 'ONLY_PPI' | 'NO_PPI'>('ALL');
 
@@ -169,6 +176,32 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
     () => Array.from(new Set(expedientes.map((e) => e.juzgado).filter(Boolean))),
     [expedientes]
   );
+  const aniosDisponibles = useMemo(
+    () => Array.from(new Set(expedientes.map((e) => e.anio).filter(Boolean))).sort((a, b) => Number(b) - Number(a)),
+    [expedientes]
+  );
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchTerm.trim()) count++;
+    if (filterReq) count++;
+    if (filterJuzgado) count++;
+    if (filterEstado) count++;
+    if (filterAnio) count++;
+    if (filterIncompletos !== 'ALL') count++;
+    if (filterPPI !== 'ALL') count++;
+    return count;
+  }, [searchTerm, filterReq, filterJuzgado, filterEstado, filterAnio, filterIncompletos, filterPPI]);
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilterReq('');
+    setFilterJuzgado('');
+    setFilterEstado('');
+    setFilterAnio('');
+    setFilterIncompletos('ALL');
+    setFilterPPI('ALL');
+  };
 
   // Filtered lists
   const filteredExpedientes = useMemo(() => {
@@ -201,6 +234,7 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
       if (filterReq && e.tipoRequerimiento !== filterReq) return false;
       if (filterJuzgado && e.juzgado !== filterJuzgado) return false;
       if (filterEstado && e.estado !== filterEstado) return false;
+      if (filterAnio && e.anio.toString() !== filterAnio) return false;
 
       // Text search
       if (searchTerm.trim()) {
@@ -224,7 +258,7 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
 
       return true;
     });
-  }, [expedientes, activeTab, filterReq, filterJuzgado, filterEstado, filterIncompletos, filterPPI, searchTerm]);
+  }, [expedientes, activeTab, filterReq, filterJuzgado, filterEstado, filterAnio, filterIncompletos, filterPPI, searchTerm]);
 
   // Selected cases for combination
   const selectedCasesForCombine = useMemo(() => {
@@ -368,7 +402,46 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Module vs Submodules Navigation Banner */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl border border-slate-700 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider font-extrabold text-blue-400 bg-blue-950/80 px-2 py-0.5 rounded border border-blue-800">
+            Módulo Principal
+          </span>
+          <span className="text-xs font-bold text-white flex items-center gap-1.5">
+            <FileText className="w-4 h-4 text-blue-400" />
+            <span>Expedientes & Evidencias</span>
+          </span>
+        </div>
+
+        {onNavigate && (
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 font-medium hidden md:inline">
+              Submódulos dependientes:
+            </span>
+            <button
+              type="button"
+              onClick={() => onNavigate('personas')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-200 bg-slate-800/90 hover:bg-blue-600 hover:text-white border border-slate-700 transition-all shadow-xs"
+              title="Abrir submódulo de personas investigadas"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-blue-400" />
+              <span>Personas (Evidencias)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('ppi')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-sky-200 bg-sky-950/60 hover:bg-sky-600 hover:text-white border border-sky-800 transition-all shadow-xs"
+              title="Abrir submódulo de causas con personal policial involucrado"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-sky-400" />
+              <span>Causas PPI (Policial)</span>
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Module Title & Top Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div>
@@ -518,46 +591,108 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-        <div className="relative col-span-1 sm:col-span-2">
-          <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por N°, carátula, personas investigadas, DNI o juzgado..."
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+      {/* Filter and Search Bar with Hide/Show toggle */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
+            >
+              <Filter className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-mono">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
+
+            {activeFiltersCount > 0 && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-semibold underline underline-offset-2 ml-1"
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          <div className="text-slate-400 text-xs">
+            Mostrando <strong className="text-slate-700 dark:text-slate-200 font-mono">{filteredExpedientes.length}</strong> de <span className="font-mono">{expedientes.length}</span> expedientes
+          </div>
         </div>
 
-        <div>
-          <select
-            value={filterReq}
-            onChange={(e) => setFilterReq(e.target.value)}
-            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
-          >
-            <option value="">Todos los Requerimientos</option>
-            {requerimientos.map((r, idx) => (
-              <option key={idx} value={r}>{r}</option>
-            ))}
-          </select>
-        </div>
+        {showFilters && (
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transition-all">
+            <div className="relative sm:col-span-4">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar por N°, carátula, personas, DNI o juzgado..."
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
 
-        <div>
-          <select
-            value={filterEstado}
-            onChange={(e) => setFilterEstado(e.target.value)}
-            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
-          >
-            <option value="">Todos los Estados</option>
-            <option value="Iniciado">Iniciado</option>
-            <option value="En Trámite">En Trámite</option>
-            <option value="Diligenciado">Diligenciado</option>
-            <option value="Elevado">Elevado</option>
-            <option value="Archivado">Archivado</option>
-          </select>
-        </div>
+            <div className="sm:col-span-3">
+              <select
+                value={filterReq}
+                onChange={(e) => setFilterReq(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+              >
+                <option value="">Todos los Requerimientos</option>
+                {requerimientos.map((r, idx) => (
+                  <option key={idx} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <select
+                value={filterEstado}
+                onChange={(e) => setFilterEstado(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+              >
+                <option value="">Todos los Estados</option>
+                <option value="Iniciado">Iniciado</option>
+                <option value="En Trámite">En Trámite</option>
+                <option value="Diligenciado">Diligenciado</option>
+                <option value="Elevado">Elevado</option>
+                <option value="Archivado">Archivado</option>
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <select
+                value={filterJuzgado}
+                onChange={(e) => setFilterJuzgado(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white"
+              >
+                <option value="">Todos los Juzgados</option>
+                {juzgados.map((j, idx) => (
+                  <option key={idx} value={j}>{j}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="sm:col-span-1">
+              <select
+                value={filterAnio}
+                onChange={(e) => setFilterAnio(e.target.value)}
+                className="w-full px-2 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white font-mono"
+              >
+                <option value="">Año</option>
+                {aniosDisponibles.map((a) => (
+                  <option key={a} value={a.toString()}>{a}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Main Expedientes Table */}
@@ -863,6 +998,7 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
         initialData={editingExpediente}
         catalogs={catalogs}
         personalList={personalList}
+        delegacionId={delegacionId}
       />
 
       {/* Attachment Zoom Modal */}

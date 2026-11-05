@@ -15,7 +15,11 @@ import {
   FolderTree,
   Building2,
   Hash,
-  X
+  X,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  Sparkles
 } from 'lucide-react';
 import { InstitutionalConfig, SisPolUser, SisPolDelegacion, NavModuleItem } from '../../types/sgp';
 import { DEFAULT_NAV_MODULES } from '../settings/ModuleOrderManagerModal';
@@ -147,7 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               />
               <div className="flex flex-col min-w-0">
                 <span className="text-xs font-black tracking-wider text-white truncate">
-                  {institutionalConfig.systemName || 'SGP / SISPOL'}
+                  {institutionalConfig.systemName || 'S.I.S.D.I.C.'}
                 </span>
                 <span className="text-[10px] text-blue-400 font-bold uppercase truncate max-w-[140px]">
                   {activeDelegacion?.codigo || institutionalConfig.subdivision}
@@ -166,51 +170,175 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="p-3 space-y-1">
-            {allowedItems.map((item) => {
-              const Icon = ICON_MAP[item.id] || FileText;
-              const isActive = currentModule === item.id;
-              const badge = getBadge(item.id);
-              const isSubmodule = !!item.parentModuleId;
+          {/* Hierarchical Navigation: Módulos Principales y Submódulos */}
+          <nav className="p-3 space-y-1.5">
+            {(() => {
+              const mainModules = allowedItems.filter((item) => !item.parentModuleId);
+              const orphanSubmodules = allowedItems.filter(
+                (item) => item.parentModuleId && !mainModules.some((m) => m.id === item.parentModuleId)
+              );
 
               return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    onSelectModule(item.id);
-                    onClose();
-                  }}
-                  className={`w-full flex items-center justify-between py-2 rounded-xl text-xs font-bold transition-all ${
-                    isSubmodule ? 'pl-7 pr-3' : 'px-3.5'
-                  } ${
-                    isActive
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {isSubmodule && (
-                      <span className="text-slate-500 font-mono text-[11px]">↳</span>
-                    )}
-                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                    <span className="truncate">{item.label}</span>
+                <>
+                  <div className="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                    <span>Módulos del Sistema</span>
+                    <span className="text-[9px] font-mono text-slate-600 bg-slate-800/80 px-1.5 py-0.5 rounded">
+                      {mainModules.length} Principales
+                    </span>
                   </div>
 
-                  {badge !== null && (
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono shrink-0 ${
-                        isActive
-                          ? 'bg-blue-700 text-white'
-                          : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {badge}
-                    </span>
+                  {mainModules.map((item) => {
+                    const Icon = ICON_MAP[item.id] || FileText;
+                    const isActive = currentModule === item.id;
+                    const badge = getBadge(item.id);
+                    const submodules = allowedItems.filter((sub) => sub.parentModuleId === item.id);
+                    const hasActiveChild = submodules.some((sub) => sub.id === currentModule);
+
+                    return (
+                      <div key={item.id} className="space-y-1">
+                        {/* Módulo Principal */}
+                        <button
+                          onClick={() => {
+                            onSelectModule(item.id);
+                            onClose();
+                          }}
+                          className={`w-full flex items-center justify-between py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                            isActive
+                              ? 'bg-blue-600 text-white shadow-md'
+                              : hasActiveChild
+                              ? 'bg-slate-800/90 text-blue-300 border border-blue-500/30'
+                              : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Icon
+                              className={`w-4 h-4 shrink-0 ${
+                                isActive ? 'text-white' : hasActiveChild ? 'text-blue-400' : 'text-slate-400'
+                              }`}
+                            />
+                            <span className="truncate">{item.label}</span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {badge !== null && (
+                              <span
+                                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                                  isActive ? 'bg-blue-700 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'
+                                }`}
+                              >
+                                {badge}
+                              </span>
+                            )}
+                            {submodules.length > 0 && (
+                              <span
+                                className={`text-[9px] px-1.5 py-0.2 rounded font-bold font-mono ${
+                                  isActive || hasActiveChild
+                                    ? 'bg-blue-500/30 text-blue-200'
+                                    : 'bg-slate-800/80 text-slate-400'
+                                }`}
+                                title={`${submodules.length} submódulos dependientes`}
+                              >
+                                {submodules.length} sub
+                              </span>
+                            )}
+                          </div>
+                        </button>
+
+                        {/* Submódulos Anidados */}
+                        {submodules.length > 0 && (
+                          <div className="ml-3 pl-2.5 border-l-2 border-blue-500/30 space-y-0.5 my-1 bg-slate-950/30 rounded-r-xl py-1 pr-1">
+                            {submodules.map((sub) => {
+                              const SubIcon = ICON_MAP[sub.id] || FileText;
+                              const isSubActive = currentModule === sub.id;
+                              const subBadge = getBadge(sub.id);
+
+                              return (
+                                <button
+                                  key={sub.id}
+                                  onClick={() => {
+                                    onSelectModule(sub.id);
+                                    onClose();
+                                  }}
+                                  className={`w-full flex items-center justify-between py-1.5 px-2.5 rounded-lg text-xs transition-all ${
+                                    isSubActive
+                                      ? 'bg-sky-600 text-white font-bold shadow-xs'
+                                      : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 font-medium'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-[10px] text-sky-400 font-mono">├─</span>
+                                    <SubIcon
+                                      className={`w-3.5 h-3.5 shrink-0 ${
+                                        isSubActive ? 'text-white' : 'text-slate-400'
+                                      }`}
+                                    />
+                                    <span className="truncate text-[11px]">{sub.label}</span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <span className="text-[8px] uppercase tracking-wider px-1 py-0.2 bg-slate-800/80 text-slate-400 rounded">
+                                      Sub
+                                    </span>
+                                    {subBadge !== null && (
+                                      <span
+                                        className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono ${
+                                          isSubActive ? 'bg-sky-700 text-white' : 'bg-slate-800 text-slate-300'
+                                        }`}
+                                      >
+                                        {subBadge}
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Submódulos Huérfanos si existieran */}
+                  {orphanSubmodules.length > 0 && (
+                    <div className="pt-2 border-t border-slate-800 space-y-1">
+                      <div className="px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500">
+                        Otros Submódulos
+                      </div>
+                      {orphanSubmodules.map((sub) => {
+                        const SubIcon = ICON_MAP[sub.id] || FileText;
+                        const isSubActive = currentModule === sub.id;
+                        const subBadge = getBadge(sub.id);
+
+                        return (
+                          <button
+                            key={sub.id}
+                            onClick={() => {
+                              onSelectModule(sub.id);
+                              onClose();
+                            }}
+                            className={`w-full flex items-center justify-between py-1.5 px-3 rounded-lg text-xs transition-all ${
+                              isSubActive
+                                ? 'bg-blue-600 text-white font-bold'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <SubIcon className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate text-[11px]">{sub.label}</span>
+                            </div>
+                            {subBadge !== null && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                                {subBadge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
-                </button>
+                </>
               );
-            })}
+            })()}
           </nav>
         </div>
 
