@@ -51,13 +51,13 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
           {/* Official Emblem & Branding */}
           <div className="flex flex-col items-center text-center space-y-3">
             <div className="relative group">
-              <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-blue-600 via-cyan-500 to-indigo-600 opacity-60 blur-xs group-hover:opacity-100 transition duration-300" />
+              <div className="absolute -inset-1.5 rounded-full bg-gradient-to-r from-blue-600 via-cyan-400 to-indigo-600 opacity-60 blur-xs group-hover:opacity-100 transition duration-300" />
               <img
-                src="/logo-dgpc.png"
-                alt="Escudo Oficial D.G.P.C."
-                className="relative w-28 h-28 object-contain rounded-full bg-slate-950 p-1 shadow-lg border border-slate-700"
+                src="/logo-sisdic.png"
+                alt="Emblema Oficial S.I.S.D.I.C. - División Investigación Ciberdelito"
+                className="relative w-32 h-32 object-contain rounded-full bg-black p-1 shadow-2xl border-2 border-cyan-500/40"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = '/logo-policia-formosa.png';
+                  (e.currentTarget as HTMLImageElement).src = '/logo-dgpc.png';
                 }}
               />
             </div>

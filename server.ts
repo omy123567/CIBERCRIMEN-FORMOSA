@@ -1449,6 +1449,12 @@ async function startServer() {
   // Setup REST API routes
   setupApiRoutes(app);
 
+  // Serve static files from public directory directly
+  const publicPath = path.join(__dirname, 'public');
+  if (fs.existsSync(publicPath)) {
+    app.use(express.static(publicPath));
+  }
+
   if (!isProd) {
     // Development mode: Vite middleware
     const { createServer: createViteServer } = await import('vite');

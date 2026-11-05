@@ -145,9 +145,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between p-4 border-b border-slate-800">
             <div className="flex items-center gap-3">
               <img
-                src={institutionalConfig.logoDataUrl || defaultBadgeUrl}
-                alt="Escudo"
-                className="w-10 h-10 rounded-full object-cover ring-2 ring-blue-500/30"
+                src={institutionalConfig.logoDataUrl || '/logo-sisdic.png'}
+                alt="Escudo S.I.S.D.I.C."
+                className="w-10 h-10 rounded-full object-cover ring-2 ring-blue-500/30 bg-slate-950"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/logo-dgpc.png';
+                }}
               />
               <div className="flex flex-col min-w-0">
                 <span className="text-xs font-black tracking-wider text-white truncate">

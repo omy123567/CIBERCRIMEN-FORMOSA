@@ -141,11 +141,11 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="flex items-center gap-2.5">
           <img
-            src={institutionalConfig.logoDataUrl || '/logo-dgpc.png'}
-            alt="Escudo"
-            className="w-8 h-8 rounded-full object-cover ring-1 ring-blue-500/40"
+            src={institutionalConfig.logoDataUrl || '/logo-sisdic.png'}
+            alt="Escudo S.I.S.D.I.C."
+            className="w-9 h-9 rounded-full object-cover ring-2 ring-blue-500/40 bg-slate-950"
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src = '/logo-policia-formosa.png';
+              (e.currentTarget as HTMLImageElement).src = '/logo-dgpc.png';
             }}
           />
           <div className="flex flex-col">
