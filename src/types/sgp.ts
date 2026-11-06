@@ -297,6 +297,11 @@ export interface SgpBackupData {
   reparaciones: Reparacion[];
   licencias: Licencia[];
   personas?: PersonaInvestigada[];
+  foliosNumerario?: FolioRegistro[];
+  seriesNumerario?: NumerarioSerie[];
+  delegacionId?: number;
+  version?: number;
+  institutionalConfig?: InstitutionalConfig;
 }
 
 export interface MembreteLine {
@@ -407,6 +412,7 @@ export interface FolioRegistro {
   solicitante?: string;
   observaciones?: string;
   fecha: string;
+  fechaAsignacion?: string;
   hora: string;
   usuarioAsigno?: string;
   delegacionId: number;

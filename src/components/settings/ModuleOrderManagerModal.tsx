@@ -26,7 +26,7 @@ export const DEFAULT_NAV_MODULES: NavModuleItem[] = [
   { id: 'charlas', label: 'Charlas y Prevención', iconName: 'BookOpen', order: 10, enabled: true, parentModuleId: null },
   { id: 'membrete', label: 'Membrete Oficial', iconName: 'Shield', order: 11, enabled: true, parentModuleId: null },
   { id: 'catalogos', label: 'Catálogos Dinámicos', iconName: 'Settings', order: 12, enabled: true, parentModuleId: null },
-  { id: 'respaldos', label: 'Copia Completa & Backup', iconName: 'Archive', order: 13, enabled: true, parentModuleId: null },
+  { id: 'respaldos', label: 'Respaldos & Depuración por Período', iconName: 'Archive', order: 13, enabled: true, parentModuleId: null },
   { id: 'usuarios', label: 'Gestión de Usuarios y Roles', iconName: 'Users', order: 14, enabled: true, parentModuleId: null }
 ];
 

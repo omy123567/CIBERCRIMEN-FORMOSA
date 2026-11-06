@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Settings, Plus, Trash2, Tag, Shield, Search, Filter } from 'lucide-react';
+import { Settings, Plus, Trash2, Tag, Shield, Search, Filter, Archive } from 'lucide-react';
 import { DynamicCatalog, InstitutionalConfig } from '../../types/sgp';
 import { sgpManager, db } from '../../db/dexieDb';
 import { MembreteEditorModule } from './MembreteEditorModule';
@@ -92,7 +92,7 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
         </div>
 
         {/* Tab Buttons */}
-        <div className="flex items-center gap-2 p-1 bg-slate-200 dark:bg-slate-800 rounded-xl">
+        <div className="flex flex-wrap items-center gap-2 p-1 bg-slate-200 dark:bg-slate-800 rounded-xl">
           <button
             type="button"
             onClick={() => setActiveTab('catalogos')}
@@ -115,8 +115,18 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
             }`}
           >
             <Shield className="w-4 h-4" />
-            <span>Membrete Oficial (Apartado Completo)</span>
+            <span>Membrete Oficial</span>
           </button>
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('respaldos')}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all"
+            >
+              <Archive className="w-4 h-4 text-rose-500" />
+              <span>Depuración & Respaldos por Período</span>
+            </button>
+          )}
         </div>
       </div>
 

@@ -20,6 +20,13 @@ import {
   CustomRoleDefinition
 } from '../types/sgp';
 import { initialSgpBackup, initialInstitutionalConfig } from './sgpInitialData';
+import {
+  PeriodDateRange,
+  EntitySelection,
+  parseDateToTime,
+  isTimestampInPeriod,
+  PeriodCounts
+} from '../utils/periodFilter';
 
 export class SisPolDatabase extends Dexie {
   expedientes!: Table<Expediente, number>;
@@ -821,6 +828,283 @@ class SgpManager {
     });
 
     this.notify();
+  }
+
+  // --- Purge Data by Period ---
+  public async purgeDataByPeriod(
+    range: PeriodDateRange,
+    entities: EntitySelection,
+    delegacionId?: number
+  ): Promise<PeriodCounts> {
+    const startTime = range.startDate.getTime();
+    const endTime = range.endDate.getTime();
+
+    // 1. Sync with server API
+    try {
+      await fetch('/api/maintenance/purge-period', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startTime,
+          endTime,
+          entities,
+          delegacionId
+        })
+      });
+    } catch (e) {
+      console.warn('[Dexie] Warning calling /api/maintenance/purge-period:', e);
+    }
+
+    // 2. Perform local deletion in Dexie
+    const deletedCounts: PeriodCounts = {
+      expedientes: 0,
+      foliosNumerario: 0,
+      personas: 0,
+      licencias: 0,
+      recargos: 0,
+      reparaciones: 0,
+      charlas: 0,
+      total: 0
+    };
+
+    await db.transaction('rw', [
+      db.expedientes,
+      db.foliosNumerario,
+      db.personas,
+      db.licencias,
+      db.recargos,
+      db.reparaciones,
+      db.charlas
+    ], async () => {
+      if (entities.expedientes) {
+        const allExp = await db.expedientes.toArray();
+        const toDelete = allExp.filter(e => {
+          if (delegacionId && e.delegacionId && e.delegacionId !== delegacionId) return false;
+          return isTimestampInPeriod(parseDateToTime(e.fechaIngreso), startTime, endTime);
+        });
+        if (toDelete.length > 0) {
+          await db.expedientes.bulkDelete(toDelete.map(e => e.id!));
+          deletedCounts.expedientes = toDelete.length;
+        }
+      }
+
+      if (entities.foliosNumerario) {
+        const allFolios = await db.foliosNumerario.toArray();
+        const toDelete = allFolios.filter(f => {
+          const t = parseDateToTime(f.fecha || f.fechaAsignacion) || (f.anio ? parseDateToTime(f.anio) : null);
+          return isTimestampInPeriod(t, startTime, endTime);
+        });
+        if (toDelete.length > 0) {
+          await db.foliosNumerario.bulkDelete(toDelete.map(f => f.id!));
+          deletedCounts.foliosNumerario = toDelete.length;
+        }
+      }
+
+      if (entities.personas) {
+        const allPersonas = await db.personas.toArray();
+        const toDelete = allPersonas.filter(p => {
+          if (delegacionId && p.delegacionId && p.delegacionId !== delegacionId) return false;
+          return isTimestampInPeriod(parseDateToTime(p.fechaRegistro), startTime, endTime);
+        });
+        if (toDelete.length > 0) {
+          await db.personas.bulkDelete(toDelete.map(p => p.id!));
+          deletedCounts.personas = toDelete.length;
+        }
+      }
+
+      if (entities.licencias) {
+        const allLic = await db.licencias.toArray();
+        const toDelete = allLic.filter(l => {
+          if (delegacionId && l.delegacionId && l.delegacionId !== delegacionId) return false;
+          const t = parseDateToTime(l.fechaSalida) || parseDateToTime(l.fechaIngreso) || (l.anioPeriodo ? parseDateToTime(l.anioPeriodo) : null);
+          return isTimestampInPeriod(t, startTime, endTime);
+        });
+        if (toDelete.length > 0) {
+          await db.licencias.bulkDelete(toDelete.map(l => l.id!));
+          deletedCounts.licencias = toDelete.length;
+        }
+      }
+
+      if (entities.recargos) {
+        const allRec = await db.recargos.toArray();
+        const toDelete = allRec.filter(r => {
+          if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+          return isTimestampInPeriod(parseDateToTime(r.fecha), startTime, endTime);
+        });
+        if (toDelete.length > 0) {
+          await db.recargos.bulkDelete(toDelete.map(r => r.id!));
+          deletedCounts.recargos = toDelete.length;
+        }
+      }
+
+      if (entities.reparaciones) {
+        const allRep = await db.reparaciones.toArray();
+        const toDelete = allRep.filter(r => {
+          if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+          return isTimestampInPeriod(parseDateToTime(r.fecha), startTime, endTime);
+        });
+        if (toDelete.length > 0) {
+          await db.reparaciones.bulkDelete(toDelete.map(r => r.id!));
+          deletedCounts.reparaciones = toDelete.length;
+        }
+      }
+
+      if (entities.charlas) {
+        const allCh = await db.charlas.toArray();
+        const toDelete = allCh.filter(c => {
+          if (delegacionId && c.delegacionId && c.delegacionId !== delegacionId) return false;
+          return isTimestampInPeriod(parseDateToTime(c.fecha), startTime, endTime);
+        });
+        if (toDelete.length > 0) {
+          await db.charlas.bulkDelete(toDelete.map(c => c.id!));
+          deletedCounts.charlas = toDelete.length;
+        }
+      }
+    });
+
+    deletedCounts.total = deletedCounts.expedientes + deletedCounts.foliosNumerario + deletedCounts.personas +
+      deletedCounts.licencias + deletedCounts.recargos + deletedCounts.reparaciones + deletedCounts.charlas;
+
+    this.notify();
+    return deletedCounts;
+  }
+
+  // --- Restore Data by Period ---
+  public async restoreDataByPeriod(
+    data: Partial<SgpBackupData>,
+    range: PeriodDateRange,
+    entities: EntitySelection,
+    mode: 'merge' | 'replace',
+    delegacionId?: number
+  ): Promise<PeriodCounts> {
+    const startTime = range.startDate.getTime();
+    const endTime = range.endDate.getTime();
+
+    // 1. Sync with server API
+    try {
+      await fetch('/api/maintenance/restore-period', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startTime,
+          endTime,
+          entities,
+          mode,
+          data,
+          delegacionId
+        })
+      });
+    } catch (e) {
+      console.warn('[Dexie] Warning calling /api/maintenance/restore-period:', e);
+    }
+
+    // 2. If mode === 'replace', purge existing records within this range first
+    if (mode === 'replace') {
+      await this.purgeDataByPeriod(range, entities, delegacionId);
+    }
+
+    const restoredCounts: PeriodCounts = {
+      expedientes: 0,
+      foliosNumerario: 0,
+      personas: 0,
+      licencias: 0,
+      recargos: 0,
+      reparaciones: 0,
+      charlas: 0,
+      total: 0
+    };
+
+    await db.transaction('rw', [
+      db.expedientes,
+      db.foliosNumerario,
+      db.personas,
+      db.licencias,
+      db.recargos,
+      db.reparaciones,
+      db.charlas
+    ], async () => {
+      if (entities.expedientes && data.expedientes?.length) {
+        const toAdd = data.expedientes.filter(e => isTimestampInPeriod(parseDateToTime(e.fechaIngreso), startTime, endTime));
+        if (toAdd.length > 0) {
+          for (const item of toAdd) {
+            await db.expedientes.put(item);
+          }
+          restoredCounts.expedientes = toAdd.length;
+        }
+      }
+
+      if (entities.foliosNumerario && data.foliosNumerario?.length) {
+        const toAdd = data.foliosNumerario.filter((f: any) => {
+          const t = parseDateToTime(f.fecha || f.fechaAsignacion) || (f.anio ? parseDateToTime(f.anio) : null);
+          return isTimestampInPeriod(t, startTime, endTime);
+        });
+        if (toAdd.length > 0) {
+          for (const item of toAdd) {
+            await db.foliosNumerario.put(item);
+          }
+          restoredCounts.foliosNumerario = toAdd.length;
+        }
+      }
+
+      if (entities.personas && data.personas?.length) {
+        const toAdd = data.personas.filter(p => isTimestampInPeriod(parseDateToTime(p.fechaRegistro), startTime, endTime));
+        if (toAdd.length > 0) {
+          for (const item of toAdd) {
+            await db.personas.put(item);
+          }
+          restoredCounts.personas = toAdd.length;
+        }
+      }
+
+      if (entities.licencias && data.licencias?.length) {
+        const toAdd = data.licencias.filter(l => {
+          const t = parseDateToTime(l.fechaSalida) || parseDateToTime(l.fechaIngreso) || (l.anioPeriodo ? parseDateToTime(l.anioPeriodo) : null);
+          return isTimestampInPeriod(t, startTime, endTime);
+        });
+        if (toAdd.length > 0) {
+          for (const item of toAdd) {
+            await db.licencias.put(item);
+          }
+          restoredCounts.licencias = toAdd.length;
+        }
+      }
+
+      if (entities.recargos && data.recargos?.length) {
+        const toAdd = data.recargos.filter(r => isTimestampInPeriod(parseDateToTime(r.fecha), startTime, endTime));
+        if (toAdd.length > 0) {
+          for (const item of toAdd) {
+            await db.recargos.put(item);
+          }
+          restoredCounts.recargos = toAdd.length;
+        }
+      }
+
+      if (entities.reparaciones && data.reparaciones?.length) {
+        const toAdd = data.reparaciones.filter(r => isTimestampInPeriod(parseDateToTime(r.fecha), startTime, endTime));
+        if (toAdd.length > 0) {
+          for (const item of toAdd) {
+            await db.reparaciones.put(item);
+          }
+          restoredCounts.reparaciones = toAdd.length;
+        }
+      }
+
+      if (entities.charlas && data.charlas?.length) {
+        const toAdd = data.charlas.filter(c => isTimestampInPeriod(parseDateToTime(c.fecha), startTime, endTime));
+        if (toAdd.length > 0) {
+          for (const item of toAdd) {
+            await db.charlas.put(item);
+          }
+          restoredCounts.charlas = toAdd.length;
+        }
+      }
+    });
+
+    restoredCounts.total = restoredCounts.expedientes + restoredCounts.foliosNumerario + restoredCounts.personas +
+      restoredCounts.licencias + restoredCounts.recargos + restoredCounts.reparaciones + restoredCounts.charlas;
+
+    this.notify();
+    return restoredCounts;
   }
 
   // --- Personas Investigadas / Imputadas Helpers ---

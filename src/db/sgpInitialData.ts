@@ -161,7 +161,7 @@ export const initialCatalogsList: DynamicCatalog[] = [
 
 export const initialInstitutionalConfig: InstitutionalConfig = {
   systemName: 'S.I.S.D.I.C.',
-  systemFullName: 'S.I.S.D.I.C. - Sistema Integral de Seguridad y Delitos Informáticos Complejos',
+  systemFullName: 'S.I.S.D.I.C. - Sistema Integral de Seguridad y Delitos Informáticos - Dirección General Policía Científica • División Investigación Cibercrimen',
   province: 'PROVINCIA DE FORMOSA',
   policeForce: 'POLICÍA DE LA PROVINCIA DE FORMOSA',
   division: 'DIVISIÓN INVESTIGACIÓN CIBERCRIMEN',

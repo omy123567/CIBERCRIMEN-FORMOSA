@@ -38,7 +38,7 @@ const AVAILABLE_MODULES = [
   { id: 'charlas', label: 'Charlas y Prevención', category: 'Comunidad' },
   { id: 'membrete', label: 'Membrete Oficial', category: 'Configuración' },
   { id: 'catalogos', label: 'Catálogos Dinámicos', category: 'Configuración' },
-  { id: 'respaldos', label: 'Copia Completa & Backup', category: 'Seguridad' },
+  { id: 'respaldos', label: 'Respaldos & Depuración por Período', category: 'Configuración' },
   { id: 'usuarios', label: 'Gestión de Usuarios y Roles', category: 'Seguridad' },
   { id: 'modulos', label: 'Administrador de Módulos', category: 'Sistema' }
 ];

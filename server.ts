@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -17,10 +18,13 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 const DB_PATH = path.join(DATA_DIR, 'sispol.sqlite');
 
-// Initialize better-sqlite3
+// Initialize better-sqlite3 with lightweight, fast settings
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+db.pragma('cache_size = -64000'); // 64MB memory cache for instant queries
+db.pragma('temp_store = MEMORY');
+db.pragma('synchronous = NORMAL');
 
 // -------------------------------------------------------------
 // Database Schema Initialization
@@ -224,6 +228,14 @@ function initializeSchema() {
       isSystem INTEGER NOT NULL DEFAULT 0,
       createdAt TEXT
     );
+
+    CREATE INDEX IF NOT EXISTS idx_expedientes_fecha ON expedientes(fechaIngreso);
+    CREATE INDEX IF NOT EXISTS idx_folios_fecha ON folios_numerario(fecha, anio);
+    CREATE INDEX IF NOT EXISTS idx_recargos_fecha ON recargos(fecha);
+    CREATE INDEX IF NOT EXISTS idx_licencias_fechas ON licencias(fechaSalida, fechaIngreso);
+    CREATE INDEX IF NOT EXISTS idx_reparaciones_fecha ON reparaciones(fecha);
+    CREATE INDEX IF NOT EXISTS idx_charlas_fecha ON charlas(fecha);
+    CREATE INDEX IF NOT EXISTS idx_personas_fecha ON personas(fechaRegistro);
   `);
 
   // Seed default custom roles if empty
@@ -1429,6 +1441,456 @@ function setupApiRoutes(app: express.Express) {
     res.setHeader('Content-Disposition', `attachment; filename=sispol_backup_${new Date().toISOString().slice(0, 10)}.json`);
     res.json(backup);
   });
+
+  // Helper function to parse dates to timestamp
+  function parseDateToTimeServer(val: any): number | null {
+    if (val === undefined || val === null) return null;
+    if (typeof val === 'number') {
+      if (val >= 1970 && val <= 2100) return new Date(val, 0, 1).getTime();
+      return val;
+    }
+    const str = String(val).trim();
+    if (!str) return null;
+    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(str)) {
+      const sep = str.includes('/') ? '/' : '-';
+      const [d, m, y] = str.split(sep);
+      const parsed = new Date(Number(y), Number(m) - 1, Number(d));
+      return isNaN(parsed.getTime()) ? null : parsed.getTime();
+    }
+    if (/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(str)) {
+      const sep = str.includes('/') ? '/' : '-';
+      const parts = str.split('T')[0].split(sep);
+      const parsed = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      return isNaN(parsed.getTime()) ? null : parsed.getTime();
+    }
+    const timestamp = Date.parse(str);
+    return isNaN(timestamp) ? null : timestamp;
+  }
+
+  // Maintenance: Purge / Delete by Period
+  app.post('/api/maintenance/purge-period', (req: Request, res: Response) => {
+    try {
+      const { startTime, endTime, entities = {}, delegacionId } = req.body;
+      if (!startTime || !endTime) {
+        return res.status(400).json({ error: 'startTime and endTime are required' });
+      }
+
+      const deletedCounts: Record<string, number> = {
+        expedientes: 0,
+        foliosNumerario: 0,
+        personas: 0,
+        licencias: 0,
+        recargos: 0,
+        reparaciones: 0,
+        charlas: 0,
+        total: 0
+      };
+
+      const purgeTx = db.transaction(() => {
+        if (entities.expedientes) {
+          const rows = db.prepare('SELECT id, fechaIngreso, delegacionId FROM expedientes').all();
+          const ids = rows
+            .filter((r: any) => {
+              if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+              const t = parseDateToTimeServer(r.fechaIngreso);
+              return t !== null && t >= startTime && t <= endTime;
+            })
+            .map((r: any) => r.id);
+          if (ids.length > 0) {
+            db.prepare(`DELETE FROM expedientes WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+            deletedCounts.expedientes = ids.length;
+          }
+        }
+
+        if (entities.foliosNumerario) {
+          const rows = db.prepare('SELECT id, fecha, anio FROM folios_numerario').all();
+          const ids = rows
+            .filter((r: any) => {
+              const t = parseDateToTimeServer(r.fecha) || (r.anio ? parseDateToTimeServer(r.anio) : null);
+              return t !== null && t >= startTime && t <= endTime;
+            })
+            .map((r: any) => r.id);
+          if (ids.length > 0) {
+            db.prepare(`DELETE FROM folios_numerario WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+            deletedCounts.foliosNumerario = ids.length;
+          }
+        }
+
+        if (entities.personas) {
+          const rows = db.prepare('SELECT id, fechaRegistro, delegacionId FROM personas').all();
+          const ids = rows
+            .filter((r: any) => {
+              if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+              const t = parseDateToTimeServer(r.fechaRegistro);
+              return t !== null && t >= startTime && t <= endTime;
+            })
+            .map((r: any) => r.id);
+          if (ids.length > 0) {
+            db.prepare(`DELETE FROM personas WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+            deletedCounts.personas = ids.length;
+          }
+        }
+
+        if (entities.licencias) {
+          const rows = db.prepare('SELECT id, fechaSalida, fechaIngreso, anioPeriodo, delegacionId FROM licencias').all();
+          const ids = rows
+            .filter((r: any) => {
+              if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+              const t = parseDateToTimeServer(r.fechaSalida) || parseDateToTimeServer(r.fechaIngreso) || (r.anioPeriodo ? parseDateToTimeServer(r.anioPeriodo) : null);
+              return t !== null && t >= startTime && t <= endTime;
+            })
+            .map((r: any) => r.id);
+          if (ids.length > 0) {
+            db.prepare(`DELETE FROM licencias WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+            deletedCounts.licencias = ids.length;
+          }
+        }
+
+        if (entities.recargos) {
+          const rows = db.prepare('SELECT id, fecha, delegacionId FROM recargos').all();
+          const ids = rows
+            .filter((r: any) => {
+              if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+              const t = parseDateToTimeServer(r.fecha);
+              return t !== null && t >= startTime && t <= endTime;
+            })
+            .map((r: any) => r.id);
+          if (ids.length > 0) {
+            db.prepare(`DELETE FROM recargos WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+            deletedCounts.recargos = ids.length;
+          }
+        }
+
+        if (entities.reparaciones) {
+          const rows = db.prepare('SELECT id, fecha, delegacionId FROM reparaciones').all();
+          const ids = rows
+            .filter((r: any) => {
+              if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+              const t = parseDateToTimeServer(r.fecha);
+              return t !== null && t >= startTime && t <= endTime;
+            })
+            .map((r: any) => r.id);
+          if (ids.length > 0) {
+            db.prepare(`DELETE FROM reparaciones WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+            deletedCounts.reparaciones = ids.length;
+          }
+        }
+
+        if (entities.charlas) {
+          const rows = db.prepare('SELECT id, fecha, delegacionId FROM charlas').all();
+          const ids = rows
+            .filter((r: any) => {
+              if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+              const t = parseDateToTimeServer(r.fecha);
+              return t !== null && t >= startTime && t <= endTime;
+            })
+            .map((r: any) => r.id);
+          if (ids.length > 0) {
+            db.prepare(`DELETE FROM charlas WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+            deletedCounts.charlas = ids.length;
+          }
+        }
+      });
+
+      purgeTx();
+
+      deletedCounts.total = deletedCounts.expedientes + deletedCounts.foliosNumerario + deletedCounts.personas +
+        deletedCounts.licencias + deletedCounts.recargos + deletedCounts.reparaciones + deletedCounts.charlas;
+
+      // Reclaim space to keep database lightweight
+      try { db.pragma('optimize'); } catch {}
+
+      res.json({ success: true, deletedCounts });
+    } catch (err: any) {
+      console.error('[Purge Period Error]:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Maintenance: Restore by Period
+  app.post('/api/maintenance/restore-period', (req: Request, res: Response) => {
+    try {
+      const { startTime, endTime, entities = {}, mode = 'merge', data = {}, delegacionId } = req.body;
+      if (!startTime || !endTime) {
+        return res.status(400).json({ error: 'startTime and endTime are required' });
+      }
+
+      const restoredCounts: Record<string, number> = {
+        expedientes: 0,
+        foliosNumerario: 0,
+        personas: 0,
+        licencias: 0,
+        recargos: 0,
+        reparaciones: 0,
+        charlas: 0,
+        total: 0
+      };
+
+      const restoreTx = db.transaction(() => {
+        // If mode is replace, delete target range first
+        if (mode === 'replace') {
+          if (entities.expedientes) {
+            const rows = db.prepare('SELECT id, fechaIngreso FROM expedientes').all();
+            const ids = rows.filter((r: any) => {
+              const t = parseDateToTimeServer(r.fechaIngreso);
+              return t !== null && t >= startTime && t <= endTime;
+            }).map((r: any) => r.id);
+            if (ids.length > 0) db.prepare(`DELETE FROM expedientes WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+          }
+          if (entities.foliosNumerario) {
+            const rows = db.prepare('SELECT id, fecha, anio FROM folios_numerario').all();
+            const ids = rows.filter((r: any) => {
+              const t = parseDateToTimeServer(r.fecha) || (r.anio ? parseDateToTimeServer(r.anio) : null);
+              return t !== null && t >= startTime && t <= endTime;
+            }).map((r: any) => r.id);
+            if (ids.length > 0) db.prepare(`DELETE FROM folios_numerario WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+          }
+          if (entities.personas) {
+            const rows = db.prepare('SELECT id, fechaRegistro FROM personas').all();
+            const ids = rows.filter((r: any) => {
+              const t = parseDateToTimeServer(r.fechaRegistro);
+              return t !== null && t >= startTime && t <= endTime;
+            }).map((r: any) => r.id);
+            if (ids.length > 0) db.prepare(`DELETE FROM personas WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+          }
+          if (entities.licencias) {
+            const rows = db.prepare('SELECT id, fechaSalida, fechaIngreso, anioPeriodo FROM licencias').all();
+            const ids = rows.filter((r: any) => {
+              const t = parseDateToTimeServer(r.fechaSalida) || parseDateToTimeServer(r.fechaIngreso) || (r.anioPeriodo ? parseDateToTimeServer(r.anioPeriodo) : null);
+              return t !== null && t >= startTime && t <= endTime;
+            }).map((r: any) => r.id);
+            if (ids.length > 0) db.prepare(`DELETE FROM licencias WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+          }
+          if (entities.recargos) {
+            const rows = db.prepare('SELECT id, fecha FROM recargos').all();
+            const ids = rows.filter((r: any) => {
+              const t = parseDateToTimeServer(r.fecha);
+              return t !== null && t >= startTime && t <= endTime;
+            }).map((r: any) => r.id);
+            if (ids.length > 0) db.prepare(`DELETE FROM recargos WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+          }
+          if (entities.reparaciones) {
+            const rows = db.prepare('SELECT id, fecha FROM reparaciones').all();
+            const ids = rows.filter((r: any) => {
+              const t = parseDateToTimeServer(r.fecha);
+              return t !== null && t >= startTime && t <= endTime;
+            }).map((r: any) => r.id);
+            if (ids.length > 0) db.prepare(`DELETE FROM reparaciones WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+          }
+          if (entities.charlas) {
+            const rows = db.prepare('SELECT id, fecha FROM charlas').all();
+            const ids = rows.filter((r: any) => {
+              const t = parseDateToTimeServer(r.fecha);
+              return t !== null && t >= startTime && t <= endTime;
+            }).map((r: any) => r.id);
+            if (ids.length > 0) db.prepare(`DELETE FROM charlas WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+          }
+        }
+
+        // Insert / Upsert records
+        if (entities.expedientes && Array.isArray(data.expedientes)) {
+          const insertStmt = db.prepare(`
+            INSERT OR REPLACE INTO expedientes (id, anio, nroExpediente, fechaIngreso, fechaVencimiento, tipoRequerimiento, juzgado, caratula, estado, customFieldsJson, delegacionId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const item of data.expedientes) {
+            const t = parseDateToTimeServer(item.fechaIngreso);
+            if (t !== null && t >= startTime && t <= endTime) {
+              insertStmt.run(
+                item.id || null,
+                item.anio || new Date().getFullYear(),
+                item.nroExpediente || '',
+                item.fechaIngreso || '',
+                item.fechaVencimiento || null,
+                item.tipoRequerimiento || '',
+                item.juzgado || '',
+                item.caratula || '',
+                item.estado || 'En Trámite',
+                typeof item.customFieldsJson === 'object' ? JSON.stringify(item.customFieldsJson) : (item.customFieldsJson || null),
+                item.delegacionId || delegacionId || 1
+              );
+              restoredCounts.expedientes++;
+            }
+          }
+        }
+
+        if (entities.foliosNumerario && Array.isArray(data.foliosNumerario)) {
+          const insertFolio = db.prepare(`
+            INSERT OR REPLACE INTO folios_numerario (id, serieId, numero, rangoId, anio, caratula, asunto, destinatario, solicitante, observaciones, tipoDocumento, fecha, hora, usuarioAsigno, delegacionId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const item of data.foliosNumerario) {
+            const folioFecha = item.fecha || (item as any).fechaAsignacion || new Date().toISOString().slice(0, 10);
+            const t = parseDateToTimeServer(folioFecha) || (item.anio ? parseDateToTimeServer(item.anio) : null);
+            if (t !== null && t >= startTime && t <= endTime) {
+              insertFolio.run(
+                item.id || null,
+                item.serieId || 1,
+                item.numero || (item as any).numeroFolio || 1,
+                item.rangoId || null,
+                Number(item.anio) || new Date().getFullYear(),
+                item.caratula || (item as any).caratulaExpediente || '',
+                item.asunto || '',
+                item.destinatario || '',
+                item.solicitante || (item as any).causante || '',
+                item.observaciones || null,
+                item.tipoDocumento || 'Oficio Judicial',
+                folioFecha,
+                item.hora || '08:00',
+                item.usuarioAsigno || (item as any).usuarioAsignado || 'Sistema',
+                item.delegacionId || delegacionId || 1
+              );
+              restoredCounts.foliosNumerario++;
+            }
+          }
+        }
+
+        if (entities.personas && Array.isArray(data.personas)) {
+          const insertPersona = db.prepare(`
+            INSERT OR REPLACE INTO personas (id, apellidoNombre, dni, observaciones, fechaRegistro, expedientesVinculados, delegacionId)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const item of data.personas) {
+            const t = parseDateToTimeServer(item.fechaRegistro);
+            if (t !== null && t >= startTime && t <= endTime) {
+              insertPersona.run(
+                item.id || null,
+                item.apellidoNombre || '',
+                item.dni || '',
+                item.observaciones || null,
+                item.fechaRegistro || null,
+                typeof item.expedientesVinculados === 'object' ? JSON.stringify(item.expedientesVinculados) : (item.expedientesVinculados || null),
+                item.delegacionId || delegacionId || 1
+              );
+              restoredCounts.personas++;
+            }
+          }
+        }
+
+        if (entities.licencias && Array.isArray(data.licencias)) {
+          const insertLic = db.prepare(`
+            INSERT OR REPLACE INTO licencias (id, personalId, jerarquia, plaza, apellidoNombre, dni, fechaIngreso, tipoLicencia, anioPeriodo, diasHabilesTomados, sumaDiasViaje, disposicionViaje, diasPermitidosViaje, fueInterrumpida, fechaInterrupcion, motivoInterrupcion, diasRestantesDevueltos, observaciones, periodosDetalleJson, fechaSalida, delegacionId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const item of data.licencias) {
+            const t = parseDateToTimeServer(item.fechaSalida) || parseDateToTimeServer(item.fechaIngreso) || (item.anioPeriodo ? parseDateToTimeServer(item.anioPeriodo) : null);
+            if (t !== null && t >= startTime && t <= endTime) {
+              insertLic.run(
+                item.id || null,
+                item.personalId || 1,
+                item.jerarquia || '',
+                item.plaza || '',
+                item.apellidoNombre || '',
+                item.dni || '',
+                item.fechaIngreso || null,
+                item.tipoLicencia || '',
+                item.anioPeriodo || new Date().getFullYear(),
+                item.diasHabilesTomados || 0,
+                item.sumaDiasViaje || 0,
+                item.disposicionViaje || null,
+                item.diasPermitidosViaje || 0,
+                item.fueInterrumpida ? 1 : 0,
+                item.fechaInterrupcion || null,
+                item.motivoInterrupcion || null,
+                item.diasRestantesDevueltos || 0,
+                item.observaciones || null,
+                typeof item.periodosDetalleJson === 'object' ? JSON.stringify(item.periodosDetalleJson) : (item.periodosDetalleJson || null),
+                item.fechaSalida || null,
+                item.delegacionId || delegacionId || 1
+              );
+              restoredCounts.licencias++;
+            }
+          }
+        }
+
+        if (entities.recargos && Array.isArray(data.recargos)) {
+          const insertRec = db.prepare(`
+            INSERT OR REPLACE INTO recargos (id, personalId, personalNombre, personalJerarquia, fecha, horarioDesde, horarioHasta, totalHoras, tipoRecargo, lugarDestino, observaciones, delegacionId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const item of data.recargos) {
+            const t = parseDateToTimeServer(item.fecha);
+            if (t !== null && t >= startTime && t <= endTime) {
+              insertRec.run(
+                item.id || null,
+                item.personalId || 1,
+                item.personalNombre || '',
+                item.personalJerarquia || '',
+                item.fecha || '',
+                item.horarioDesde || '',
+                item.horarioHasta || '',
+                item.totalHoras || '',
+                item.tipoRecargo || '',
+                item.lugarDestino || '',
+                item.observaciones || '',
+                item.delegacionId || delegacionId || 1
+              );
+              restoredCounts.recargos++;
+            }
+          }
+        }
+
+        if (entities.reparaciones && Array.isArray(data.reparaciones)) {
+          const insertRep = db.prepare(`
+            INSERT OR REPLACE INTO reparaciones (id, movilId, fecha, tallerMecanico, descripcion, repuestosCambiados, costoTotal, kmMomento, observaciones, delegacionId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const item of data.reparaciones) {
+            const t = parseDateToTimeServer(item.fecha);
+            if (t !== null && t >= startTime && t <= endTime) {
+              insertRep.run(
+                item.id || null,
+                item.movilId || 1,
+                item.fecha || '',
+                item.tallerMecanico || '',
+                item.descripcion || '',
+                item.repuestosCambiados || '',
+                item.costoTotal || 0,
+                item.kmMomento || '',
+                item.observaciones || '',
+                item.delegacionId || delegacionId || 1
+              );
+              restoredCounts.reparaciones++;
+            }
+          }
+        }
+
+        if (entities.charlas && Array.isArray(data.charlas)) {
+          const insertCh = db.prepare(`
+            INSERT OR REPLACE INTO charlas (id, fecha, lugarInstitucion, localidad, temaTratado, personalDesignado, cantidadAsistentes, observaciones, delegacionId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const item of data.charlas) {
+            const t = parseDateToTimeServer(item.fecha);
+            if (t !== null && t >= startTime && t <= endTime) {
+              insertCh.run(
+                item.id || null,
+                item.fecha || '',
+                item.lugarInstitucion || '',
+                item.localidad || '',
+                item.temaTratado || '',
+                item.personalDesignado || '',
+                item.cantidadAsistentes || 0,
+                item.observaciones || '',
+                item.delegacionId || delegacionId || 1
+              );
+              restoredCounts.charlas++;
+            }
+          }
+        }
+      });
+
+      restoreTx();
+
+      restoredCounts.total = restoredCounts.expedientes + restoredCounts.foliosNumerario + restoredCounts.personas +
+        restoredCounts.licencias + restoredCounts.recargos + restoredCounts.reparaciones + restoredCounts.charlas;
+
+      res.json({ success: true, restoredCounts });
+    } catch (err: any) {
+      console.error('[Restore Period Error]:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 }
 
 // -------------------------------------------------------------
@@ -1438,6 +1900,11 @@ async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
   const isProd = process.env.NODE_ENV === 'production';
+
+  // Enable gzip / deflate compression to make the system lightweight
+  app.use(compression({
+    threshold: 1024
+  }));
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
@@ -1449,10 +1916,13 @@ async function startServer() {
   // Setup REST API routes
   setupApiRoutes(app);
 
-  // Serve static files from public directory directly
+  // Serve static files from public directory directly with caching headers
   const publicPath = path.join(__dirname, 'public');
   if (fs.existsSync(publicPath)) {
-    app.use(express.static(publicPath));
+    app.use(express.static(publicPath, {
+      maxAge: '7d',
+      etag: true
+    }));
   }
 
   if (!isProd) {

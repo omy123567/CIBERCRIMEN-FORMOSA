@@ -70,10 +70,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
                 S.I.S.D.I.C.
               </h1>
               <p className="text-xs text-blue-200/90 font-medium mt-1">
-                Sistema Integral de Seguridad y Delitos Informáticos Complejos
+                Sistema Integral de Seguridad y Delitos Informáticos
               </p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Dirección General Policía Científica • División Ciberdelito
+                Dirección General Policía Científica • División Investigación Cibercrimen
               </p>
             </div>
           </div>
