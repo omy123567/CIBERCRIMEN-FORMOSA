@@ -19,7 +19,11 @@ import {
   CheckSquare,
   Square,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Zap,
+  Check,
+  X
 } from 'lucide-react';
 import { SgpBackupData } from '../../types/sgp';
 import {
@@ -48,7 +52,31 @@ interface BackupModuleProps {
   onRefresh: () => void;
 }
 
-type TabType = 'general' | 'eliminar_periodo' | 'restaurar_periodo' | 'exportar_periodo';
+type TabType = 'general' | 'vaciar_todo' | 'eliminar_periodo' | 'restaurar_periodo' | 'exportar_periodo';
+
+interface ClearAllOptions {
+  clearExpedientes: boolean;
+  clearPersonal: boolean;
+  clearFolios: boolean;
+  clearPersonas: boolean;
+  clearLicencias: boolean;
+  clearMoviles: boolean;
+  clearReparaciones: boolean;
+  clearRecargos: boolean;
+  clearCharlas: boolean;
+}
+
+const DEFAULT_CLEAR_OPTIONS: ClearAllOptions = {
+  clearExpedientes: true,
+  clearPersonal: true,
+  clearFolios: true,
+  clearPersonas: true,
+  clearLicencias: true,
+  clearMoviles: true,
+  clearReparaciones: true,
+  clearRecargos: true,
+  clearCharlas: true
+};
 
 export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefresh }) => {
   const [activeTab, setActiveTab] = useState<TabType>('general');
@@ -56,6 +84,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const [isImporting, setIsImporting] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
   const [isRestoringPeriod, setIsRestoringPeriod] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ success: boolean; message: string } | null>(null);
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
 
@@ -63,6 +92,42 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const fileInputZipRef = useRef<HTMLInputElement>(null);
   const fileInputJsonRef = useRef<HTMLInputElement>(null);
   const fileInputRestorePeriodRef = useRef<HTMLInputElement>(null);
+
+  // -------------------------------------------------------------
+  // State for "Vaciar Todo (Iniciar Sistema Limpio)"
+  // -------------------------------------------------------------
+  const [showClearAllModal, setShowClearAllModal] = useState(false);
+  const [clearAllConfirmText, setClearAllConfirmText] = useState('');
+  const [autoBackupBeforeClear, setAutoBackupBeforeClear] = useState(true);
+  const [clearOptions, setClearOptions] = useState<ClearAllOptions>({ ...DEFAULT_CLEAR_OPTIONS });
+
+  const totalOperationalRecords = useMemo(() => {
+    return (
+      (backupData.expedientes?.length || 0) +
+      (backupData.personal?.length || 0) +
+      (backupData.foliosNumerario?.length || 0) +
+      (backupData.personas?.length || 0) +
+      (backupData.licencias?.length || 0) +
+      (backupData.moviles?.length || 0) +
+      (backupData.reparaciones?.length || 0) +
+      (backupData.recargos?.length || 0) +
+      (backupData.charlas?.length || 0)
+    );
+  }, [backupData]);
+
+  const selectedClearCount = useMemo(() => {
+    let count = 0;
+    if (clearOptions.clearExpedientes) count += (backupData.expedientes?.length || 0);
+    if (clearOptions.clearPersonal) count += (backupData.personal?.length || 0);
+    if (clearOptions.clearFolios) count += (backupData.foliosNumerario?.length || 0);
+    if (clearOptions.clearPersonas) count += (backupData.personas?.length || 0);
+    if (clearOptions.clearLicencias) count += (backupData.licencias?.length || 0);
+    if (clearOptions.clearMoviles) count += (backupData.moviles?.length || 0);
+    if (clearOptions.clearReparaciones) count += (backupData.reparaciones?.length || 0);
+    if (clearOptions.clearRecargos) count += (backupData.recargos?.length || 0);
+    if (clearOptions.clearCharlas) count += (backupData.charlas?.length || 0);
+    return count;
+  }, [backupData, clearOptions]);
 
   // -------------------------------------------------------------
   // State for "Eliminar por Período"
@@ -79,7 +144,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const [showPurgeConfirmModal, setShowPurgeConfirmModal] = useState(false);
   const [purgeConfirmationText, setPurgeConfirmationText] = useState('');
 
-  // Calculate purge date range and live count of affected records
   const purgeRange = useMemo(() => {
     return calculatePeriodRange(purgePeriod, purgeCustomStart, purgeCustomEnd);
   }, [purgePeriod, purgeCustomStart, purgeCustomEnd]);
@@ -214,8 +278,76 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
     onRefresh();
     setStatusMessage({
       success: true,
-      message: 'Base de datos restablecida a los valores iniciales de fábrica.'
+      message: 'Base de datos restablecida a los valores iniciales de prueba.'
     });
+  };
+
+  // -------------------------------------------------------------
+  // Handlers for "Vaciar Todo (Iniciar Sistema Limpio)"
+  // -------------------------------------------------------------
+  const toggleClearOption = (key: keyof ClearAllOptions) => {
+    setClearOptions(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const setAllClearOptions = (val: boolean) => {
+    setClearOptions({
+      clearExpedientes: val,
+      clearPersonal: val,
+      clearFolios: val,
+      clearPersonas: val,
+      clearLicencias: val,
+      clearMoviles: val,
+      clearReparaciones: val,
+      clearRecargos: val,
+      clearCharlas: val
+    });
+  };
+
+  const handleInitiateClearAll = () => {
+    if (selectedClearCount === 0) {
+      alert('No hay módulos seleccionados o los registros ya están en 0.');
+      return;
+    }
+    setClearAllConfirmText('');
+    setShowClearAllModal(true);
+  };
+
+  const handleExecuteClearAll = async () => {
+    if (clearAllConfirmText.trim().toUpperCase() !== 'ELIMINAR TODO') {
+      alert('Debe escribir exactamente "ELIMINAR TODO" para confirmar el vaciado del sistema.');
+      return;
+    }
+
+    setShowClearAllModal(false);
+    setIsClearingAll(true);
+    setStatusMessage(null);
+
+    try {
+      // 1. Automatic complete safety backup if selected
+      if (autoBackupBeforeClear) {
+        const jsonStr = JSON.stringify(backupData, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const dateStr = new Date().toISOString().slice(0, 10);
+        saveAs(blob, `sisdic_copia_seguridad_completa_previa_vaciado_${dateStr}.json`);
+      }
+
+      // 2. Perform wipe on IndexedDB and SQLite
+      await sgpManager.clearAllData(clearOptions);
+
+      setStatusMessage({
+        success: true,
+        message: `Base de datos vaciada con éxito (${selectedClearCount} registros eliminados). El sistema está completamente limpio para cargar sus propios datos reales.`
+      });
+
+      onRefresh();
+    } catch (err: any) {
+      setStatusMessage({
+        success: false,
+        message: `Error al vaciar los datos: ${err.message}`
+      });
+    } finally {
+      setIsClearingAll(false);
+    }
   };
 
   // -------------------------------------------------------------
@@ -257,7 +389,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
     setStatusMessage(null);
 
     try {
-      // 1. Automatic pre-purge safety backup if enabled
       if (autoBackupBeforePurge) {
         const safetyBackup = extractPeriodBackup(backupData, purgeRange, purgeEntities);
         const jsonStr = JSON.stringify(safetyBackup, null, 2);
@@ -266,7 +397,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
         saveAs(blob, `resguardo_seguridad_previo_purga_${purgePeriod}_${dateStr}.json`);
       }
 
-      // 2. Perform deletion on both local Dexie and central SQLite
       const result = await sgpManager.purgeDataByPeriod(purgeRange, purgeEntities, backupData.delegacionId);
 
       setStatusMessage({
@@ -382,10 +512,10 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
         <div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Archive className="w-6 h-6 text-blue-600 shrink-0" />
-            <span>Configuración: Centro de Respaldos y Depuración por Períodos</span>
+            <span>Configuración: Centro de Respaldos y Gestión de Datos</span>
           </h1>
           <p className="text-xs text-slate-500">
-            Exportación, importación total e interoperable, con capacidad de eliminación y restauración selectiva por períodos (Semana, Mes, Año, Personalizado).
+            Administración completa de datos: respaldos completos (ZIP/JSON), depuración por períodos y vaciado total para iniciar con datos reales propios.
           </p>
         </div>
       </div>
@@ -404,6 +534,19 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
           <span>Respaldos Globales (ZIP / JSON)</span>
         </button>
 
+        {/* Tab Vaciar Todo */}
+        <button
+          onClick={() => setActiveTab('vaciar_todo')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'vaciar_todo'
+              ? 'bg-red-600 text-white shadow-xs shadow-red-500/30 ring-2 ring-red-500/20'
+              : 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40'
+          }`}
+        >
+          <Trash2 className="w-4 h-4 text-red-500" />
+          <span>Vaciar Todo (Iniciar Sistema Limpio)</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('eliminar_periodo')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -412,8 +555,8 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
               : 'text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-700 dark:text-rose-400'
           }`}
         >
-          <Trash2 className="w-4 h-4" />
-          <span>Eliminar Datos por Período</span>
+          <Calendar className="w-4 h-4" />
+          <span>Eliminar por Período</span>
         </button>
 
         <button
@@ -464,10 +607,276 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
       )}
 
       {/* ------------------------------------------------------------- */}
+      {/* TAB: VACIAR TODO (INICIAR SISTEMA LIMPIO) */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'vaciar_todo' && (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border-2 border-red-200 dark:border-red-900/50 shadow-xl space-y-6">
+            {/* Header Box */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-red-100 dark:border-red-900/30 pb-5">
+              <div className="flex items-start sm:items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-950/80 flex items-center justify-center text-red-600 shrink-0 ring-4 ring-red-50 dark:ring-red-950/40">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Vaciar Todo el Sistema (Iniciar con Datos Reales Propios)</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Elimina todos los datos de prueba y registros precargados dejando los contadores en 0 para que pueda ingresar sus propios expedientes, legajos y evidencias institucionales.
+                  </p>
+                </div>
+              </div>
+
+              <div className="px-4 py-2 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 rounded-xl text-right">
+                <span className="text-[10px] uppercase font-bold text-red-600 dark:text-red-400 block">Registros Actuales Cargados</span>
+                <span className="text-xl font-black font-mono text-red-700 dark:text-red-300">{totalOperationalRecords}</span>
+              </div>
+            </div>
+
+            {/* Step 1: Respaldo Preventivo */}
+            <div className="p-5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 rounded-2xl space-y-3">
+              <div className="flex items-center gap-2 text-blue-900 dark:text-blue-300 font-bold text-sm">
+                <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>Paso 1: Copia de Seguridad Preventiva (Recomendado)</span>
+              </div>
+              <p className="text-xs text-blue-800 dark:text-blue-300/80 leading-relaxed">
+                Antes de vaciar el sistema, le recomendamos descargar una copia de seguridad completa con todos los datos actuales. Podrá restaurarla en cualquier momento si lo necesita.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleExportSingleJson}
+                  className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 text-xs font-bold rounded-xl transition-all shadow-xs"
+                >
+                  <Download className="w-4 h-4 text-emerald-600" />
+                  <span>Descargar Copia Completa (JSON)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportZip}
+                  disabled={isExportingZip}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{isExportingZip ? 'Generando ZIP...' : 'Descargar ZIP con Adjuntos'}</span>
+                </button>
+              </div>
+
+              <div className="pt-2 border-t border-blue-200/60 dark:border-blue-900/40">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={autoBackupBeforeClear}
+                    onChange={(e) => setAutoBackupBeforeClear(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded-sm"
+                  />
+                  <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    Generar y descargar automáticamente copia de seguridad completa antes de vaciar la base de datos
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Step 2: Selección de Módulos a Vaciar */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Paso 2: Módulos a Vaciar (Seleccione los datos que desea poner a cero):
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setAllClearOptions(true)}
+                    className="text-[11px] font-bold text-blue-600 hover:underline"
+                  >
+                    Seleccionar Todos
+                  </button>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <button
+                    onClick={() => setAllClearOptions(false)}
+                    className="text-[11px] font-bold text-slate-500 hover:underline"
+                  >
+                    Deseleccionar
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {[
+                  { key: 'clearExpedientes' as const, label: 'Expedientes & Evidencias', count: backupData.expedientes?.length || 0, desc: 'Causas judiciales y pericias' },
+                  { key: 'clearPersonal' as const, label: 'Personal & Legajos', count: backupData.personal?.length || 0, desc: 'Efectivos policiales precargados' },
+                  { key: 'clearFolios' as const, label: 'Numerario & Folios', count: backupData.foliosNumerario?.length || 0, desc: 'Folios y asignaciones de numerario' },
+                  { key: 'clearPersonas' as const, label: 'Personas (Evidencias)', count: backupData.personas?.length || 0, desc: 'Personas investigadas e imputadas' },
+                  { key: 'clearLicencias' as const, label: 'Licencias & Cuatrienio', count: backupData.licencias?.length || 0, desc: 'Novedades y registros de licencias' },
+                  { key: 'clearRecargos' as const, label: 'Recargos de Servicio', count: backupData.recargos?.length || 0, desc: 'Planillas de recargos operativos' },
+                  { key: 'clearMoviles' as const, label: 'Parque Automotor (Móviles)', count: backupData.moviles?.length || 0, desc: 'Móviles y patrulleros' },
+                  { key: 'clearReparaciones' as const, label: 'Reparaciones Mecánicas', count: backupData.reparaciones?.length || 0, desc: 'Historial de taller y services' },
+                  { key: 'clearCharlas' as const, label: 'Charlas & Capacitaciones', count: backupData.charlas?.length || 0, desc: 'Eventos y charlas preventivas' }
+                ].map((item) => {
+                  const isChecked = clearOptions[item.key];
+                  return (
+                    <div
+                      key={item.key}
+                      onClick={() => toggleClearOption(item.key)}
+                      className={`p-3.5 rounded-2xl border cursor-pointer select-none transition-all flex items-start justify-between gap-3 ${
+                        isChecked
+                          ? 'border-red-400 bg-red-50/40 dark:bg-red-950/20 text-slate-900 dark:text-white ring-1 ring-red-400/20'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="mt-0.5">
+                          {isChecked ? (
+                            <CheckSquare className="w-4 h-4 text-red-600 shrink-0" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold block">{item.label}</span>
+                          <span className="text-[10px] text-slate-500 block">{item.desc}</span>
+                        </div>
+                      </div>
+                      <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                        item.count > 0 ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                      }`}>
+                        {item.count}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="p-3 bg-slate-100 dark:bg-slate-800/80 rounded-xl text-[11px] text-slate-600 dark:text-slate-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  <strong>Nota de Seguridad:</strong> Su usuario administrador, contraseñas, roles de acceso y categorías de catálogos base se mantendrán intactos para que pueda seguir administrando el sistema.
+                </span>
+              </div>
+            </div>
+
+            {/* Action Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 bg-slate-950 text-white rounded-2xl border border-slate-800">
+              <div>
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                  Total a Vaciar:
+                </span>
+                <span className="text-base font-black font-mono text-red-400">
+                  {selectedClearCount} registros seleccionados para eliminar
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleInitiateClearAll}
+                disabled={isClearingAll || selectedClearCount === 0}
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs shadow-lg shadow-red-950/60 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isClearingAll ? 'Vaciando Base de Datos...' : `Vaciar Todos los Datos (${selectedClearCount} registros)`}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Modal de Confirmación de Vaciado */}
+          {showClearAllModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-fadeIn">
+              <div className="bg-white dark:bg-slate-900 border-2 border-red-500 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5">
+                <div className="flex items-center gap-3 text-red-600">
+                  <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-950/80 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                      Confirmar Vaciado Total de la Base de Datos
+                    </h3>
+                    <span className="text-xs text-red-600 font-bold uppercase tracking-wider">
+                      Acción irreversible de puesta a cero
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-red-50/80 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl text-xs text-red-950 dark:text-red-200 space-y-2">
+                  <p>
+                    Está a punto de eliminar <strong>{selectedClearCount} registros cargados</strong> del sistema (expedientes, personal, folios, evidencias, etc.) para comenzar desde cero con sus propios datos reales.
+                  </p>
+                  {autoBackupBeforeClear && (
+                    <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold pt-1">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>Se generará y descargará automáticamente un archivo JSON con la copia completa antes de vaciar.</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Escriba exactamente <span className="font-mono text-red-600 font-black">ELIMINAR TODO</span> para confirmar:
+                  </label>
+                  <input
+                    type="text"
+                    value={clearAllConfirmText}
+                    onChange={(e) => setClearAllConfirmText(e.target.value)}
+                    placeholder="ELIMINAR TODO"
+                    className="w-full px-4 py-2.5 text-sm font-mono uppercase bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:border-red-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={() => setShowClearAllModal(false)}
+                    className="px-4 py-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleExecuteClearAll}
+                    disabled={clearAllConfirmText.trim().toUpperCase() !== 'ELIMINAR TODO'}
+                    className="px-6 py-2.5 text-xs font-black text-white bg-red-600 hover:bg-red-700 rounded-xl disabled:opacity-40 transition-colors shadow-lg shadow-red-950/40"
+                  >
+                    Vaciar Todo Ahora
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
       {/* TAB 1: RESPALDOS GENERALES */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'general' && (
         <div className="space-y-6">
+          {/* Banner Directo: Vaciar datos para cargar los propios */}
+          <div className="p-5 bg-gradient-to-r from-red-950/30 via-slate-900 to-slate-900 rounded-2xl border-2 border-red-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-white flex items-center gap-2">
+                  <span>¿Desea vaciar todos los datos precargados para ingresar los suyos?</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 font-bold">
+                    {totalOperationalRecords} registros
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Elimine los expedientes, legajos y numerario de prueba con resguardo preventivo automático antes de vaciar.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('vaciar_todo')}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 shrink-0"
+            >
+              Vaciar Todo y Empezar Limpio
+            </button>
+          </div>
+
           {/* Database Entity Status Grid */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -628,21 +1037,21 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
           </div>
 
           {/* Dangerous Zone / Factory Reset */}
-          <div className="p-5 bg-rose-50/50 dark:bg-rose-950/20 rounded-2xl border border-rose-200 dark:border-rose-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="p-5 bg-slate-100 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h4 className="text-xs font-bold text-rose-900 dark:text-rose-300 uppercase">
-                Restablecer a Valores Iniciales de Fábrica
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">
+                Restablecer a Valores Iniciales de Fábrica (Datos Demo)
               </h4>
-              <p className="text-xs text-rose-700 dark:text-rose-400">
-                Reinicia la base de datos con los datos institucionales predeterminados de prueba y limpia modificaciones locales.
+              <p className="text-xs text-slate-500">
+                Reinicia la base de datos con los datos institucionales de prueba de Laguna Blanca.
               </p>
             </div>
 
             <button
               onClick={() => setIsConfirmResetOpen(true)}
-              className="px-4 py-2 text-xs font-bold text-rose-700 hover:text-white hover:bg-rose-600 rounded-xl border border-rose-300 dark:border-rose-800 transition-colors shrink-0"
+              className="px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl border border-slate-300 dark:border-slate-600 transition-colors shrink-0"
             >
-              Restablecer Base de Datos
+              Restablecer Valores Demo
             </button>
           </div>
 
@@ -651,7 +1060,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
             onClose={() => setIsConfirmResetOpen(false)}
             onConfirm={handleFactoryReset}
             title="Restablecer a Valores de Fábrica"
-            message="¿Está seguro de que desea reiniciar la base de datos? Se cargarán los datos predeterminados y se sobreescribirán los registros locales no respaldados."
+            message="¿Está seguro de que desea reiniciar la base de datos? Se cargarán los datos predeterminados de prueba y se sobreescribirán los registros locales."
             confirmText="Restablecer"
             danger={true}
           />
@@ -673,7 +1082,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                   Depuración y Eliminación Selectiva por Período
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Permite purgar registros transaccionales u operativos (expedientes, folios, licencias, recargos, etc.) correspondientes a una semana, mes, año o rango de fechas específico.
+                  Permite purgar registros transaccionales u operativos correspondientes a una semana, mes, año o rango de fechas específico.
                 </p>
               </div>
             </div>
@@ -952,7 +1361,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
             {/* Configuration for restoration if file is loaded */}
             {restoreFileParsed && (
               <div className="space-y-6 pt-2 animate-fadeIn">
-                {/* 1. Selector de Período para restaurar */}
                 <div className="space-y-3">
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                     1. Período a Extraer y Restaurar desde el Archivo:
@@ -1009,7 +1417,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                   )}
                 </div>
 
-                {/* 2. Modo de Restauración */}
                 <div className="space-y-3">
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                     2. Modo de Incorporación:
@@ -1062,7 +1469,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                   </div>
                 </div>
 
-                {/* Preview of items detected in file */}
                 {restoreCounts && (
                   <div className="p-4 bg-slate-900 text-white rounded-xl border border-slate-800 space-y-3">
                     <div className="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -1086,7 +1492,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                   </div>
                 )}
 
-                {/* Execute button */}
                 <div className="flex justify-end pt-2">
                   <button
                     onClick={handleExecuteRestorePeriod}
@@ -1123,7 +1528,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
               </div>
             </div>
 
-            {/* Period Selector */}
             <div className="space-y-3">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                 Seleccionar Período a Exportar:
@@ -1179,7 +1583,6 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
               )}
             </div>
 
-            {/* Counts preview */}
             <div className="p-4 bg-slate-900 text-white rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-xs font-bold text-slate-300 block">

@@ -830,6 +830,68 @@ class SgpManager {
     this.notify();
   }
 
+  // --- Clear / Wipe All Operational Data (Fresh Start) ---
+  public async clearAllData(options?: {
+    clearPersonal?: boolean;
+    clearExpedientes?: boolean;
+    clearFolios?: boolean;
+    clearPersonas?: boolean;
+    clearMoviles?: boolean;
+    clearReparaciones?: boolean;
+    clearRecargos?: boolean;
+    clearCharlas?: boolean;
+    clearLicencias?: boolean;
+  }): Promise<void> {
+    const opts = {
+      clearPersonal: true,
+      clearExpedientes: true,
+      clearFolios: true,
+      clearPersonas: true,
+      clearMoviles: true,
+      clearReparaciones: true,
+      clearRecargos: true,
+      clearCharlas: true,
+      clearLicencias: true,
+      ...options
+    };
+
+    // 1. Sync with server API
+    try {
+      await fetch('/api/maintenance/clear-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts)
+      });
+    } catch (e) {
+      console.warn('[Dexie] Warning calling /api/maintenance/clear-all:', e);
+    }
+
+    // 2. Clear IndexedDB tables
+    await db.transaction('rw', [
+      db.expedientes,
+      db.personal,
+      db.moviles,
+      db.reparaciones,
+      db.recargos,
+      db.charlas,
+      db.licencias,
+      db.personas,
+      db.foliosNumerario
+    ], async () => {
+      if (opts.clearExpedientes) await db.expedientes.clear();
+      if (opts.clearPersonal) await db.personal.clear();
+      if (opts.clearMoviles) await db.moviles.clear();
+      if (opts.clearReparaciones) await db.reparaciones.clear();
+      if (opts.clearRecargos) await db.recargos.clear();
+      if (opts.clearCharlas) await db.charlas.clear();
+      if (opts.clearLicencias) await db.licencias.clear();
+      if (opts.clearPersonas) await db.personas.clear();
+      if (opts.clearFolios) await db.foliosNumerario.clear();
+    });
+
+    this.notify();
+  }
+
   // --- Purge Data by Period ---
   public async purgeDataByPeriod(
     range: PeriodDateRange,

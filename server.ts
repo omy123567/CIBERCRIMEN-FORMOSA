@@ -1607,6 +1607,48 @@ function setupApiRoutes(app: express.Express) {
     }
   });
 
+  // Maintenance: Clear / Wipe All Data (Fresh Start for Real Operations)
+  app.post('/api/maintenance/clear-all', (req: Request, res: Response) => {
+    try {
+      const {
+        clearExpedientes = true,
+        clearPersonal = true,
+        clearFolios = true,
+        clearPersonas = true,
+        clearMoviles = true,
+        clearReparaciones = true,
+        clearRecargos = true,
+        clearCharlas = true,
+        clearLicencias = true
+      } = req.body;
+
+      const clearTx = db.transaction(() => {
+        if (clearExpedientes) db.exec('DELETE FROM expedientes');
+        if (clearFolios) db.exec('DELETE FROM folios_numerario');
+        if (clearPersonas) db.exec('DELETE FROM personas');
+        if (clearLicencias) db.exec('DELETE FROM licencias');
+        if (clearPersonal) db.exec('DELETE FROM personal');
+        if (clearMoviles) db.exec('DELETE FROM moviles');
+        if (clearReparaciones) db.exec('DELETE FROM reparaciones');
+        if (clearRecargos) db.exec('DELETE FROM recargos');
+        if (clearCharlas) db.exec('DELETE FROM charlas');
+
+        // Vacuum and optimize to keep database compact and lightweight
+        try { db.pragma('optimize'); } catch {}
+      });
+
+      clearTx();
+
+      res.json({
+        success: true,
+        message: 'Base de datos vaciada con éxito para carga de datos limpios.'
+      });
+    } catch (err: any) {
+      console.error('[Clear All Error]:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Maintenance: Restore by Period
   app.post('/api/maintenance/restore-period', (req: Request, res: Response) => {
     try {
