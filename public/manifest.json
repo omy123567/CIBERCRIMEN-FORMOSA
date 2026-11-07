@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "S.I.S.D.I.C. - Sistema Integral de Seguridad y Delitos Informáticos",
+  "short_name": "SISDIC",
+  "description": "Sistema Integral de Seguridad y Delitos Informáticos - Dirección General Policía Científica • División Investigación Cibercrimen",
+  "theme_color": "#0284c7",
+  "background_color": "#020617",
+  "display": "standalone",
+  "orientation": "any",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

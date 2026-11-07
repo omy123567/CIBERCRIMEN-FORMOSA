@@ -166,17 +166,7 @@ class SgpManager {
 
     try {
       await db.open();
-      const count = await db.expedientes.count();
-      if (count === 0) {
-        // Seed initial data
-        await this.seedInitial();
-      } else {
-        // Verify personas count
-        const pCount = await db.personas.count();
-        if (pCount === 0 && initialSgpBackup.personas?.length) {
-          await db.personas.bulkAdd(initialSgpBackup.personas);
-        }
-      }
+      // Do not auto-seed test records on empty tables to allow clean user data entry
 
       // Ensure default delegations exist
       const delCount = await db.delegaciones.count();
@@ -323,82 +313,129 @@ class SgpManager {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined
-      }).catch(() => {});
+      }).catch((err) => {
+        console.warn(`[Sync mutation ${method} ${endpoint} failed]:`, err);
+      });
     };
 
     // Expedientes
-    db.expedientes.hook('creating', (_primKey, obj) => {
-      sendMutation('/api/expedientes', 'POST', obj);
+    db.expedientes.hook('creating', (primKey, obj) => {
+      sendMutation('/api/expedientes', 'POST', { ...obj, id: primKey || obj.id });
     });
     db.expedientes.hook('updating', (modifications, primKey, obj) => {
-      sendMutation(`/api/expedientes/${primKey}`, 'PUT', { ...obj, ...modifications });
+      sendMutation(`/api/expedientes/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
     });
     db.expedientes.hook('deleting', (primKey) => {
       sendMutation(`/api/expedientes/${primKey}`, 'DELETE');
     });
 
     // Personal
-    db.personal.hook('creating', (_primKey, obj) => {
-      sendMutation('/api/personal', 'POST', obj);
+    db.personal.hook('creating', (primKey, obj) => {
+      sendMutation('/api/personal', 'POST', { ...obj, id: primKey || obj.id });
     });
     db.personal.hook('updating', (modifications, primKey, obj) => {
-      sendMutation(`/api/personal/${primKey}`, 'PUT', { ...obj, ...modifications });
+      sendMutation(`/api/personal/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
     });
     db.personal.hook('deleting', (primKey) => {
       sendMutation(`/api/personal/${primKey}`, 'DELETE');
     });
 
     // Moviles
-    db.moviles.hook('creating', (_primKey, obj) => {
-      sendMutation('/api/moviles', 'POST', obj);
+    db.moviles.hook('creating', (primKey, obj) => {
+      sendMutation('/api/moviles', 'POST', { ...obj, id: primKey || obj.id });
     });
     db.moviles.hook('updating', (modifications, primKey, obj) => {
-      sendMutation(`/api/moviles/${primKey}`, 'PUT', { ...obj, ...modifications });
+      sendMutation(`/api/moviles/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
     });
     db.moviles.hook('deleting', (primKey) => {
       sendMutation(`/api/moviles/${primKey}`, 'DELETE');
     });
 
+    // Reparaciones
+    db.reparaciones.hook('creating', (primKey, obj) => {
+      sendMutation('/api/reparaciones', 'POST', { ...obj, id: primKey || obj.id });
+    });
+    db.reparaciones.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/reparaciones/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
+    });
+    db.reparaciones.hook('deleting', (primKey) => {
+      sendMutation(`/api/reparaciones/${primKey}`, 'DELETE');
+    });
+
+    // Recargos
+    db.recargos.hook('creating', (primKey, obj) => {
+      sendMutation('/api/recargos', 'POST', { ...obj, id: primKey || obj.id });
+    });
+    db.recargos.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/recargos/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
+    });
+    db.recargos.hook('deleting', (primKey) => {
+      sendMutation(`/api/recargos/${primKey}`, 'DELETE');
+    });
+
+    // Charlas
+    db.charlas.hook('creating', (primKey, obj) => {
+      sendMutation('/api/charlas', 'POST', { ...obj, id: primKey || obj.id });
+    });
+    db.charlas.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/charlas/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
+    });
+    db.charlas.hook('deleting', (primKey) => {
+      sendMutation(`/api/charlas/${primKey}`, 'DELETE');
+    });
+
+    // Licencias
+    db.licencias.hook('creating', (primKey, obj) => {
+      sendMutation('/api/licencias', 'POST', { ...obj, id: primKey || obj.id });
+    });
+    db.licencias.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/licencias/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
+    });
+    db.licencias.hook('deleting', (primKey) => {
+      sendMutation(`/api/licencias/${primKey}`, 'DELETE');
+    });
+
     // Folios
-    db.foliosNumerario.hook('creating', (_primKey, obj) => {
+    db.foliosNumerario.hook('creating', (primKey, obj) => {
       const folioToSend = {
         ...obj,
+        id: primKey || obj.id,
         anio: Number(obj.anio) || new Date().getFullYear()
       };
       sendMutation('/api/numerario/folios', 'POST', folioToSend);
     });
     db.foliosNumerario.hook('updating', (modifications, primKey, obj) => {
-      sendMutation(`/api/numerario/folios/${primKey}`, 'PUT', { ...obj, ...modifications });
+      sendMutation(`/api/numerario/folios/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
     });
     db.foliosNumerario.hook('deleting', (primKey) => {
       sendMutation(`/api/numerario/folios/${primKey}`, 'DELETE');
     });
 
     // Personas Investigadas
-    db.personas.hook('creating', (_primKey, obj) => {
-      sendMutation('/api/personas', 'POST', obj);
+    db.personas.hook('creating', (primKey, obj) => {
+      sendMutation('/api/personas', 'POST', { ...obj, id: primKey || obj.id });
     });
     db.personas.hook('updating', (modifications, primKey, obj) => {
-      sendMutation(`/api/personas/${primKey}`, 'PUT', { ...obj, ...modifications });
+      sendMutation(`/api/personas/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
     });
     db.personas.hook('deleting', (primKey) => {
       sendMutation(`/api/personas/${primKey}`, 'DELETE');
     });
 
     // Catálogos Dinámicos
-    db.dynamicCatalogs.hook('creating', (_primKey, obj) => {
-      sendMutation('/api/dynamic-catalogs', 'POST', obj);
+    db.dynamicCatalogs.hook('creating', (primKey, obj) => {
+      sendMutation('/api/dynamic-catalogs', 'POST', { ...obj, id: primKey || obj.id });
     });
     db.dynamicCatalogs.hook('deleting', (primKey) => {
       sendMutation(`/api/dynamic-catalogs/${primKey}`, 'DELETE');
     });
 
     // Custom Roles
-    db.customRoles.hook('creating', (_primKey, obj) => {
-      sendMutation('/api/roles', 'POST', obj);
+    db.customRoles.hook('creating', (primKey, obj) => {
+      sendMutation('/api/roles', 'POST', { ...obj, id: primKey || obj.id });
     });
     db.customRoles.hook('updating', (modifications, primKey, obj) => {
-      sendMutation(`/api/roles/${primKey}`, 'PUT', { ...obj, ...modifications });
+      sendMutation(`/api/roles/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
     });
     db.customRoles.hook('deleting', (primKey) => {
       sendMutation(`/api/roles/${primKey}`, 'DELETE');
@@ -523,6 +560,19 @@ class SgpManager {
         allowedModules: allModules.filter(m => m !== 'modulos'),
         allowedDelegacionIds: [2],
         canAdminModules: false
+      },
+      {
+        id: 5,
+        nombreApellido: 'Administrador General S.I.S.D.I.C.',
+        email: 'admin@sisdic.gob.ar',
+        username: 'admin',
+        password: 'adminpassword',
+        rol: 'superusuario',
+        delegacionId: 1,
+        canDelete: true,
+        allowedModules: allModules,
+        allowedDelegacionIds: [1, 2, 3, 4, 5],
+        canAdminModules: true
       }
     ];
 

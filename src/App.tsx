@@ -19,6 +19,7 @@ import { ModuleOrderManagerModal, DEFAULT_NAV_MODULES } from './components/setti
 import { LoginView } from './components/auth/LoginView';
 import { ChangePasswordModal } from './components/auth/ChangePasswordModal';
 import { NumerarioModule } from './components/numerario/NumerarioModule';
+import { OfflineIndicator } from './components/pwa/OfflineIndicator';
 
 import {
   SgpBackupData,
@@ -452,6 +453,9 @@ export default function App() {
         onSaveModules={handleSaveNavModules}
         currentModules={navModulesConfig}
       />
+
+      {/* PWA / Cross-platform Offline Status Indicator */}
+      <OfflineIndicator />
     </div>
   );
 }

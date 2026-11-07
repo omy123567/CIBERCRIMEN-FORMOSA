@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { InstitutionalConfig, SisPolUser, SisPolDelegacion } from '../../types/sgp';
 import { syncWithServer } from '../../db/dexieDb';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -242,6 +243,9 @@ export const Header: React.FC<HeaderProps> = ({
         >
           {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-blue-300" />}
         </button>
+
+        {/* PWA Multi-Platform Install Button */}
+        <PWAInstallButton />
 
         {/* Quick New Case */}
         {onOpenQuickNew && (

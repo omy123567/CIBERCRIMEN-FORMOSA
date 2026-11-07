@@ -92,6 +92,7 @@ function initializeSchema() {
       identificador TEXT NOT NULL,
       marca TEXT NOT NULL,
       modelo TEXT NOT NULL,
+      tipo TEXT,
       dominio TEXT NOT NULL,
       chasis TEXT,
       motor TEXT,
@@ -237,6 +238,9 @@ function initializeSchema() {
     CREATE INDEX IF NOT EXISTS idx_charlas_fecha ON charlas(fecha);
     CREATE INDEX IF NOT EXISTS idx_personas_fecha ON personas(fechaRegistro);
   `);
+
+  // Ensure tipo column exists on moviles if table was created in earlier version
+  try { db.exec('ALTER TABLE moviles ADD COLUMN tipo TEXT'); } catch {}
 
   // Seed default custom roles if empty
   const countRoles = db.prepare('SELECT count(*) as count FROM custom_roles').get() as { count: number };
@@ -417,185 +421,33 @@ function initializeSchema() {
     }
   }
 
-  // Seed sample initial records if expedientes empty
-  const countExp = db.prepare('SELECT count(*) as count FROM expedientes').get() as { count: number };
-  if (countExp.count === 0) {
-    // Expedientes
-    const insertExp = db.prepare(`
-      INSERT INTO expedientes (anio, nroExpediente, fechaIngreso, fechaVencimiento, tipoRequerimiento, juzgado, caratula, estado, customFieldsJson, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const e of initialSgpBackup.expedientes) {
-      insertExp.run(
-        e.anio,
-        e.nroExpediente,
-        e.fechaIngreso,
-        e.fechaVencimiento || null,
-        e.tipoRequerimiento,
-        e.juzgado,
-        e.caratula,
-        e.estado,
-        e.customFieldsJson,
-        e.delegacionId || 1
+  // Ensure admin user exists with requested credentials (admin / adminpassword)
+  try {
+    const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
+    if (!adminExists) {
+      const allModules = [
+        'dashboard', 'expedientes', 'numerario', 'ppi', 'personas',
+        'personal', 'licencias', 'moviles', 'recargos', 'charlas',
+        'membrete', 'catalogos', 'respaldos', 'usuarios', 'modulos'
+      ];
+      db.prepare(`
+        INSERT INTO users (username, email, password, nombreApellido, rol, delegacionId, canDelete, allowedModules, allowedDelegacionIds, canAdminModules)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'admin',
+        'admin@sisdic.gob.ar',
+        'adminpassword',
+        'Administrador General S.I.S.D.I.C.',
+        'superusuario',
+        1,
+        1,
+        JSON.stringify(allModules),
+        JSON.stringify([1, 2, 3, 4, 5]),
+        1
       );
     }
-
-    // Personal
-    const insertPers = db.prepare(`
-      INSERT INTO personal (jerarquia, plaza, apellidoNombre, dni, fechaNacimiento, fechaIngreso, grupo, contactoEmergencia, disponible, motivoNoDisponible, customFieldsJson, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const p of initialSgpBackup.personal) {
-      insertPers.run(
-        p.jerarquia,
-        p.plaza,
-        p.apellidoNombre,
-        p.dni,
-        p.fechaNacimiento,
-        p.fechaIngreso,
-        p.grupo,
-        p.contactoEmergencia || null,
-        p.disponible ? 1 : 0,
-        p.motivoNoDisponible || null,
-        p.customFieldsJson || null,
-        p.delegacionId || 1
-      );
-    }
-  }
-
-  // Moviles independent seeding check
-  const countMov = db.prepare('SELECT count(*) as count FROM moviles').get() as { count: number };
-  if (countMov.count === 0 && initialSgpBackup.moviles) {
-    const insertMov = db.prepare(`
-      INSERT INTO moviles (identificador, marca, modelo, dominio, chasis, motor, condicion, kmActual, kmUltimoService, kmProximoService, vencimientoRto, vencimientoSeguro, companiaSeguro, numeroPoliza, observaciones, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const m of initialSgpBackup.moviles) {
-      insertMov.run(
-        m.identificador,
-        m.marca,
-        m.modelo,
-        m.dominio,
-        m.chasis || null,
-        m.motor || null,
-        m.condicion,
-        m.kmActual || null,
-        m.kmUltimoService || null,
-        m.kmProximoService || null,
-        m.vencimientoRto || null,
-        m.vencimientoSeguro || null,
-        m.companiaSeguro || null,
-        m.numeroPoliza || null,
-        m.observaciones || null,
-        m.delegacionId || 1
-      );
-    }
-
-    // Reparaciones
-    const insertRep = db.prepare(`
-      INSERT INTO reparaciones (movilId, fecha, tallerMecanico, descripcion, repuestosCambiados, costoTotal, kmMomento, observaciones, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const r of initialSgpBackup.reparaciones) {
-      insertRep.run(
-        r.movilId,
-        r.fecha,
-        r.tallerMecanico || null,
-        r.descripcion,
-        r.repuestosCambiados || null,
-        r.costoTotal || null,
-        r.kmMomento || null,
-        r.observaciones || null,
-        r.delegacionId || 1
-      );
-    }
-
-    // Recargos
-    const insertRec = db.prepare(`
-      INSERT INTO recargos (personalId, personalNombre, personalJerarquia, fecha, horarioDesde, horarioHasta, totalHoras, tipoRecargo, lugarDestino, observaciones, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const rc of initialSgpBackup.recargos) {
-      insertRec.run(
-        rc.personalId,
-        rc.personalNombre || null,
-        rc.personalJerarquia || null,
-        rc.fecha,
-        rc.horarioDesde || null,
-        rc.horarioHasta || null,
-        rc.totalHoras || null,
-        rc.tipoRecargo,
-        rc.lugarDestino || null,
-        rc.observaciones || null,
-        rc.delegacionId || 1
-      );
-    }
-
-    // Charlas
-    const insertCha = db.prepare(`
-      INSERT INTO charlas (fecha, lugarInstitucion, localidad, temaTratado, personalDesignado, cantidadAsistentes, observaciones, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const ch of initialSgpBackup.charlas) {
-      insertCha.run(
-        ch.fecha,
-        ch.lugarInstitucion,
-        ch.localidad,
-        ch.temaTratado,
-        ch.personalDesignado || null,
-        ch.cantidadAsistentes || null,
-        ch.observaciones || null,
-        ch.delegacionId || 1
-      );
-    }
-
-    // Licencias
-    const insertLic = db.prepare(`
-      INSERT INTO licencias (personalId, jerarquia, plaza, apellidoNombre, dni, fechaIngreso, tipoLicencia, anioPeriodo, diasHabilesTomados, sumaDiasViaje, disposicionViaje, diasPermitidosViaje, fueInterrumpida, fechaInterrupcion, motivoInterrupcion, diasRestantesDevueltos, observaciones, periodosDetalleJson, fechaSalida, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const l of initialSgpBackup.licencias) {
-      insertLic.run(
-        l.personalId,
-        l.jerarquia || null,
-        l.plaza || null,
-        l.apellidoNombre || null,
-        l.dni || null,
-        l.fechaIngreso || null,
-        l.tipoLicencia,
-        l.anioPeriodo,
-        l.diasHabilesTomados || 0,
-        l.sumaDiasViaje ? 1 : 0,
-        l.disposicionViaje || null,
-        l.diasPermitidosViaje || 0,
-        l.fueInterrumpida ? 1 : 0,
-        l.fechaInterrupcion || null,
-        l.motivoInterrupcion || null,
-        l.diasRestantesDevueltos || 0,
-        l.observaciones || null,
-        l.periodosDetalleJson || null,
-        l.fechaSalida || null,
-        l.delegacionId || 1
-      );
-    }
-
-    // Personas
-    if (initialSgpBackup.personas && initialSgpBackup.personas.length > 0) {
-      const insertPer = db.prepare(`
-        INSERT INTO personas (apellidoNombre, dni, observaciones, fechaRegistro, expedientesVinculados, delegacionId)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      for (const p of initialSgpBackup.personas) {
-        insertPer.run(
-          p.apellidoNombre,
-          p.dni,
-          p.observaciones || null,
-          p.fechaRegistro || null,
-          JSON.stringify(p.expedientesVinculados || []),
-          p.delegacionId || 1
-        );
-      }
-    }
+  } catch (err) {
+    console.warn('[Admin user check]:', err);
   }
 
   // Seed default series numerario if empty
@@ -882,63 +734,81 @@ function setupApiRoutes(app: express.Express) {
   });
 
   app.post('/api/expedientes', (req: Request, res: Response) => {
-    const e = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO expedientes (anio, nroExpediente, fechaIngreso, fechaVencimiento, tipoRequerimiento, juzgado, caratula, estado, customFieldsJson, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(
-      e.anio,
-      e.nroExpediente,
-      e.fechaIngreso,
-      e.fechaVencimiento || null,
-      e.tipoRequerimiento,
-      e.juzgado,
-      e.caratula,
-      e.estado,
-      e.customFieldsJson || '{}',
-      e.delegacionId || 1
-    );
-    res.json({ id: info.lastInsertRowid, success: true });
+    try {
+      const e = req.body;
+      const customFieldsJson = typeof e.customFieldsJson === 'object' ? JSON.stringify(e.customFieldsJson) : (e.customFieldsJson || '{}');
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO expedientes (id, anio, nroExpediente, fechaIngreso, fechaVencimiento, tipoRequerimiento, juzgado, caratula, estado, customFieldsJson, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        e.id || null,
+        Number(e.anio) || new Date().getFullYear(),
+        e.nroExpediente || '',
+        e.fechaIngreso || '',
+        e.fechaVencimiento || null,
+        e.tipoRequerimiento || 'Pericia Informática',
+        e.juzgado || '',
+        e.caratula || '',
+        e.estado || 'En Trámite',
+        customFieldsJson,
+        e.delegacionId || 1
+      );
+      res.json({ id: e.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/expedientes error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.put('/api/expedientes/:id', (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    const e = req.body;
-    const stmt = db.prepare(`
-      UPDATE expedientes SET
-        anio = ?,
-        nroExpediente = ?,
-        fechaIngreso = ?,
-        fechaVencimiento = ?,
-        tipoRequerimiento = ?,
-        juzgado = ?,
-        caratula = ?,
-        estado = ?,
-        customFieldsJson = ?,
-        delegacionId = ?
-      WHERE id = ?
-    `);
-    stmt.run(
-      e.anio,
-      e.nroExpediente,
-      e.fechaIngreso,
-      e.fechaVencimiento || null,
-      e.tipoRequerimiento,
-      e.juzgado,
-      e.caratula,
-      e.estado,
-      e.customFieldsJson || '{}',
-      e.delegacionId || 1,
-      id
-    );
-    res.json({ success: true });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const e = req.body;
+      const customFieldsJson = typeof e.customFieldsJson === 'object' ? JSON.stringify(e.customFieldsJson) : (e.customFieldsJson || '{}');
+      const stmt = db.prepare(`
+        UPDATE expedientes SET
+          anio = ?,
+          nroExpediente = ?,
+          fechaIngreso = ?,
+          fechaVencimiento = ?,
+          tipoRequerimiento = ?,
+          juzgado = ?,
+          caratula = ?,
+          estado = ?,
+          customFieldsJson = ?,
+          delegacionId = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        Number(e.anio) || new Date().getFullYear(),
+        e.nroExpediente || '',
+        e.fechaIngreso || '',
+        e.fechaVencimiento || null,
+        e.tipoRequerimiento || 'Pericia Informática',
+        e.juzgado || '',
+        e.caratula || '',
+        e.estado || 'En Trámite',
+        customFieldsJson,
+        e.delegacionId || 1,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[PUT /api/expedientes error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.delete('/api/expedientes/:id', (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    db.prepare('DELETE FROM expedientes WHERE id = ?').run(id);
-    res.json({ success: true });
+    try {
+      const id = parseInt(req.params.id, 10);
+      db.prepare('DELETE FROM expedientes WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[DELETE /api/expedientes error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Personal
@@ -954,69 +824,87 @@ function setupApiRoutes(app: express.Express) {
   });
 
   app.post('/api/personal', (req: Request, res: Response) => {
-    const p = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO personal (jerarquia, plaza, apellidoNombre, dni, fechaNacimiento, fechaIngreso, grupo, contactoEmergencia, disponible, motivoNoDisponible, customFieldsJson, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(
-      p.jerarquia,
-      p.plaza,
-      p.apellidoNombre,
-      p.dni,
-      p.fechaNacimiento,
-      p.fechaIngreso,
-      p.grupo,
-      p.contactoEmergencia || null,
-      p.disponible ? 1 : 0,
-      p.motivoNoDisponible || null,
-      p.customFieldsJson || null,
-      p.delegacionId || 1
-    );
-    res.json({ id: info.lastInsertRowid, success: true });
+    try {
+      const p = req.body;
+      const customFieldsJson = typeof p.customFieldsJson === 'object' ? JSON.stringify(p.customFieldsJson) : (p.customFieldsJson || null);
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO personal (id, jerarquia, plaza, apellidoNombre, dni, fechaNacimiento, fechaIngreso, grupo, contactoEmergencia, disponible, motivoNoDisponible, customFieldsJson, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        p.id || null,
+        p.jerarquia || '',
+        p.plaza || '',
+        p.apellidoNombre || '',
+        p.dni || '',
+        p.fechaNacimiento || '',
+        p.fechaIngreso || '',
+        p.grupo || '',
+        p.contactoEmergencia || null,
+        p.disponible ? 1 : 0,
+        p.motivoNoDisponible || null,
+        customFieldsJson,
+        p.delegacionId || 1
+      );
+      res.json({ id: p.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/personal error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.put('/api/personal/:id', (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    const p = req.body;
-    const stmt = db.prepare(`
-      UPDATE personal SET
-        jerarquia = ?,
-        plaza = ?,
-        apellidoNombre = ?,
-        dni = ?,
-        fechaNacimiento = ?,
-        fechaIngreso = ?,
-        grupo = ?,
-        contactoEmergencia = ?,
-        disponible = ?,
-        motivoNoDisponible = ?,
-        customFieldsJson = ?,
-        delegacionId = ?
-      WHERE id = ?
-    `);
-    stmt.run(
-      p.jerarquia,
-      p.plaza,
-      p.apellidoNombre,
-      p.dni,
-      p.fechaNacimiento,
-      p.fechaIngreso,
-      p.grupo,
-      p.contactoEmergencia || null,
-      p.disponible ? 1 : 0,
-      p.motivoNoDisponible || null,
-      p.customFieldsJson || null,
-      p.delegacionId || 1,
-      id
-    );
-    res.json({ success: true });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const p = req.body;
+      const customFieldsJson = typeof p.customFieldsJson === 'object' ? JSON.stringify(p.customFieldsJson) : (p.customFieldsJson || null);
+      const stmt = db.prepare(`
+        UPDATE personal SET
+          jerarquia = ?,
+          plaza = ?,
+          apellidoNombre = ?,
+          dni = ?,
+          fechaNacimiento = ?,
+          fechaIngreso = ?,
+          grupo = ?,
+          contactoEmergencia = ?,
+          disponible = ?,
+          motivoNoDisponible = ?,
+          customFieldsJson = ?,
+          delegacionId = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        p.jerarquia || '',
+        p.plaza || '',
+        p.apellidoNombre || '',
+        p.dni || '',
+        p.fechaNacimiento || '',
+        p.fechaIngreso || '',
+        p.grupo || '',
+        p.contactoEmergencia || null,
+        p.disponible ? 1 : 0,
+        p.motivoNoDisponible || null,
+        customFieldsJson,
+        p.delegacionId || 1,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[PUT /api/personal error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.delete('/api/personal/:id', (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    db.prepare('DELETE FROM personal WHERE id = ?').run(id);
-    res.json({ success: true });
+    try {
+      const id = parseInt(req.params.id, 10);
+      db.prepare('DELETE FROM personal WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[DELETE /api/personal error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Moviles & Reparaciones
@@ -1029,90 +917,101 @@ function setupApiRoutes(app: express.Express) {
   });
 
   app.post('/api/moviles', (req: Request, res: Response) => {
-    const m = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO moviles (identificador, tipoMovil, marca, modelo, dominio, chasis, motor, anioFabricacion, condicion, estadoRevista, odometroActual, ultimoServiceKm, ultimoServiceFecha, proximoServiceKm, aseguradora, vencimientoSeguro, polizaNumero, observaciones, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(
-      m.identificador,
-      m.tipoMovil,
-      m.marca,
-      m.modelo,
-      m.dominio,
-      m.chasis || null,
-      m.motor || null,
-      m.anioFabricacion || null,
-      m.condicion,
-      m.estadoRevista,
-      m.odometroActual || null,
-      m.ultimoServiceKm || null,
-      m.ultimoServiceFecha || null,
-      m.proximoServiceKm || null,
-      m.aseguradora || null,
-      m.vencimientoSeguro || null,
-      m.polizaNumero || null,
-      m.observaciones || null,
-      m.delegacionId || 1
-    );
-    res.json({ id: info.lastInsertRowid, success: true });
+    try {
+      const m = req.body;
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO moviles (id, identificador, marca, modelo, tipo, dominio, chasis, motor, condicion, kmActual, kmUltimoService, kmProximoService, vencimientoRto, vencimientoSeguro, companiaSeguro, numeroPoliza, observaciones, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        m.id || null,
+        m.identificador || '',
+        m.marca || '',
+        m.modelo || '',
+        m.tipo || '',
+        m.dominio || '',
+        m.chasis || null,
+        m.motor || null,
+        m.condicion || 'En Servicio',
+        m.kmActual || null,
+        m.kmUltimoService || null,
+        m.kmProximoService || null,
+        m.vencimientoRto || null,
+        m.vencimientoSeguro || null,
+        m.companiaSeguro || null,
+        m.numeroPoliza || null,
+        m.observaciones || null,
+        m.delegacionId || 1
+      );
+      res.json({ id: m.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/moviles error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.put('/api/moviles/:id', (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    const m = req.body;
-    const stmt = db.prepare(`
-      UPDATE moviles SET
-        identificador = ?,
-        tipoMovil = ?,
-        marca = ?,
-        modelo = ?,
-        dominio = ?,
-        chasis = ?,
-        motor = ?,
-        anioFabricacion = ?,
-        condicion = ?,
-        estadoRevista = ?,
-        odometroActual = ?,
-        ultimoServiceKm = ?,
-        ultimoServiceFecha = ?,
-        proximoServiceKm = ?,
-        aseguradora = ?,
-        vencimientoSeguro = ?,
-        polizaNumero = ?,
-        observaciones = ?,
-        delegacionId = ?
-      WHERE id = ?
-    `);
-    stmt.run(
-      m.identificador,
-      m.tipoMovil,
-      m.marca,
-      m.modelo,
-      m.dominio,
-      m.chasis || null,
-      m.motor || null,
-      m.anioFabricacion || null,
-      m.condicion,
-      m.estadoRevista,
-      m.odometroActual || null,
-      m.ultimoServiceKm || null,
-      m.ultimoServiceFecha || null,
-      m.proximoServiceKm || null,
-      m.aseguradora || null,
-      m.vencimientoSeguro || null,
-      m.polizaNumero || null,
-      m.observaciones || null,
-      m.delegacionId || 1,
-      id
-    );
-    res.json({ success: true });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const m = req.body;
+      const stmt = db.prepare(`
+        UPDATE moviles SET
+          identificador = ?,
+          marca = ?,
+          modelo = ?,
+          tipo = ?,
+          dominio = ?,
+          chasis = ?,
+          motor = ?,
+          condicion = ?,
+          kmActual = ?,
+          kmUltimoService = ?,
+          kmProximoService = ?,
+          vencimientoRto = ?,
+          vencimientoSeguro = ?,
+          companiaSeguro = ?,
+          numeroPoliza = ?,
+          observaciones = ?,
+          delegacionId = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        m.identificador || '',
+        m.marca || '',
+        m.modelo || '',
+        m.tipo || '',
+        m.dominio || '',
+        m.chasis || null,
+        m.motor || null,
+        m.condicion || 'En Servicio',
+        m.kmActual || null,
+        m.kmUltimoService || null,
+        m.kmProximoService || null,
+        m.vencimientoRto || null,
+        m.vencimientoSeguro || null,
+        m.companiaSeguro || null,
+        m.numeroPoliza || null,
+        m.observaciones || null,
+        m.delegacionId || 1,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[PUT /api/moviles error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.delete('/api/moviles/:id', (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    db.prepare('DELETE FROM moviles WHERE id = ?').run(id);
-    res.json({ success: true });
+    try {
+      const id = parseInt(req.params.id, 10);
+      db.prepare('DELETE FROM reparaciones WHERE movilId = ?').run(id);
+      db.prepare('DELETE FROM moviles WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[DELETE /api/moviles error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.get('/api/reparaciones', (req: Request, res: Response) => {
@@ -1124,13 +1023,364 @@ function setupApiRoutes(app: express.Express) {
   });
 
   app.post('/api/reparaciones', (req: Request, res: Response) => {
-    const r = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO reparaciones (movilId, fecha, tipoReparacion, descripcion, costo, taller, estado, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(r.movilId, r.fecha, r.tipoReparacion, r.descripcion, r.costo || null, r.taller || null, r.estado, r.delegacionId || 1);
-    res.json({ id: info.lastInsertRowid, success: true });
+    try {
+      const r = req.body;
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO reparaciones (id, movilId, fecha, tallerMecanico, descripcion, repuestosCambiados, costoTotal, kmMomento, observaciones, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        r.id || null,
+        r.movilId || 1,
+        r.fecha || '',
+        r.tallerMecanico || null,
+        r.descripcion || '',
+        r.repuestosCambiados || null,
+        r.costoTotal || null,
+        r.kmMomento || null,
+        r.observaciones || null,
+        r.delegacionId || 1
+      );
+      res.json({ id: r.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/reparaciones error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/reparaciones/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const r = req.body;
+      const stmt = db.prepare(`
+        UPDATE reparaciones SET
+          movilId = ?,
+          fecha = ?,
+          tallerMecanico = ?,
+          descripcion = ?,
+          repuestosCambiados = ?,
+          costoTotal = ?,
+          kmMomento = ?,
+          observaciones = ?,
+          delegacionId = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        r.movilId || 1,
+        r.fecha || '',
+        r.tallerMecanico || null,
+        r.descripcion || '',
+        r.repuestosCambiados || null,
+        r.costoTotal || null,
+        r.kmMomento || null,
+        r.observaciones || null,
+        r.delegacionId || 1,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[PUT /api/reparaciones error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/reparaciones/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      db.prepare('DELETE FROM reparaciones WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[DELETE /api/reparaciones error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Recargos de Servicio
+  app.get('/api/recargos', (req: Request, res: Response) => {
+    const delegacionId = req.query.delegacionId ? parseInt(req.query.delegacionId as string, 10) : null;
+    const rows = delegacionId
+      ? db.prepare('SELECT * FROM recargos WHERE delegacionId = ? ORDER BY id DESC').all(delegacionId)
+      : db.prepare('SELECT * FROM recargos ORDER BY id DESC').all();
+    res.json(rows);
+  });
+
+  app.post('/api/recargos', (req: Request, res: Response) => {
+    try {
+      const rc = req.body;
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO recargos (id, personalId, personalNombre, personalJerarquia, fecha, horarioDesde, horarioHasta, totalHoras, tipoRecargo, lugarDestino, observaciones, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        rc.id || null,
+        rc.personalId || 1,
+        rc.personalNombre || '',
+        rc.personalJerarquia || '',
+        rc.fecha || '',
+        rc.horarioDesde || '',
+        rc.horarioHasta || '',
+        rc.totalHoras || '',
+        rc.tipoRecargo || 'Servicio Ordinario',
+        rc.lugarDestino || '',
+        rc.observaciones || '',
+        rc.delegacionId || 1
+      );
+      res.json({ id: rc.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/recargos error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/recargos/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const rc = req.body;
+      const stmt = db.prepare(`
+        UPDATE recargos SET
+          personalId = ?,
+          personalNombre = ?,
+          personalJerarquia = ?,
+          fecha = ?,
+          horarioDesde = ?,
+          horarioHasta = ?,
+          totalHoras = ?,
+          tipoRecargo = ?,
+          lugarDestino = ?,
+          observaciones = ?,
+          delegacionId = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        rc.personalId || 1,
+        rc.personalNombre || '',
+        rc.personalJerarquia || '',
+        rc.fecha || '',
+        rc.horarioDesde || '',
+        rc.horarioHasta || '',
+        rc.totalHoras || '',
+        rc.tipoRecargo || 'Servicio Ordinario',
+        rc.lugarDestino || '',
+        rc.observaciones || '',
+        rc.delegacionId || 1,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[PUT /api/recargos error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/recargos/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      db.prepare('DELETE FROM recargos WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[DELETE /api/recargos error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Charlas y Prevención
+  app.get('/api/charlas', (req: Request, res: Response) => {
+    const delegacionId = req.query.delegacionId ? parseInt(req.query.delegacionId as string, 10) : null;
+    const rows = delegacionId
+      ? db.prepare('SELECT * FROM charlas WHERE delegacionId = ? ORDER BY id DESC').all(delegacionId)
+      : db.prepare('SELECT * FROM charlas ORDER BY id DESC').all();
+    res.json(rows);
+  });
+
+  app.post('/api/charlas', (req: Request, res: Response) => {
+    try {
+      const ch = req.body;
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO charlas (id, fecha, lugarInstitucion, localidad, temaTratado, personalDesignado, cantidadAsistentes, observaciones, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        ch.id || null,
+        ch.fecha || '',
+        ch.lugarInstitucion || '',
+        ch.localidad || '',
+        ch.temaTratado || '',
+        ch.personalDesignado || '',
+        ch.cantidadAsistentes || 0,
+        ch.observaciones || '',
+        ch.delegacionId || 1
+      );
+      res.json({ id: ch.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/charlas error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/charlas/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const ch = req.body;
+      const stmt = db.prepare(`
+        UPDATE charlas SET
+          fecha = ?,
+          lugarInstitucion = ?,
+          localidad = ?,
+          temaTratado = ?,
+          personalDesignado = ?,
+          cantidadAsistentes = ?,
+          observaciones = ?,
+          delegacionId = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        ch.fecha || '',
+        ch.lugarInstitucion || '',
+        ch.localidad || '',
+        ch.temaTratado || '',
+        ch.personalDesignado || '',
+        ch.cantidadAsistentes || 0,
+        ch.observaciones || '',
+        ch.delegacionId || 1,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[PUT /api/charlas error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/charlas/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      db.prepare('DELETE FROM charlas WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[DELETE /api/charlas error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Licencias y Cuatrimestres
+  app.get('/api/licencias', (req: Request, res: Response) => {
+    const delegacionId = req.query.delegacionId ? parseInt(req.query.delegacionId as string, 10) : null;
+    const rows = delegacionId
+      ? db.prepare('SELECT * FROM licencias WHERE delegacionId = ? ORDER BY id DESC').all(delegacionId)
+      : db.prepare('SELECT * FROM licencias ORDER BY id DESC').all();
+    res.json(rows.map((l: any) => ({
+      ...l,
+      sumaDiasViaje: Boolean(l.sumaDiasViaje),
+      fueInterrumpida: Boolean(l.fueInterrumpida)
+    })));
+  });
+
+  app.post('/api/licencias', (req: Request, res: Response) => {
+    try {
+      const l = req.body;
+      const periodosDetalleJson = typeof l.periodosDetalleJson === 'object' ? JSON.stringify(l.periodosDetalleJson) : (l.periodosDetalleJson || null);
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO licencias (id, personalId, jerarquia, plaza, apellidoNombre, dni, fechaIngreso, tipoLicencia, anioPeriodo, diasHabilesTomados, sumaDiasViaje, disposicionViaje, diasPermitidosViaje, fueInterrumpida, fechaInterrupcion, motivoInterrupcion, diasRestantesDevueltos, observaciones, periodosDetalleJson, fechaSalida, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        l.id || null,
+        l.personalId || 1,
+        l.jerarquia || null,
+        l.plaza || null,
+        l.apellidoNombre || null,
+        l.dni || null,
+        l.fechaIngreso || null,
+        l.tipoLicencia || 'Anual',
+        l.anioPeriodo || new Date().getFullYear(),
+        l.diasHabilesTomados || 0,
+        l.sumaDiasViaje ? 1 : 0,
+        l.disposicionViaje || null,
+        l.diasPermitidosViaje || 0,
+        l.fueInterrumpida ? 1 : 0,
+        l.fechaInterrupcion || null,
+        l.motivoInterrupcion || null,
+        l.diasRestantesDevueltos || 0,
+        l.observaciones || null,
+        periodosDetalleJson,
+        l.fechaSalida || null,
+        l.delegacionId || 1
+      );
+      res.json({ id: l.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/licencias error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/licencias/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const l = req.body;
+      const periodosDetalleJson = typeof l.periodosDetalleJson === 'object' ? JSON.stringify(l.periodosDetalleJson) : (l.periodosDetalleJson || null);
+      const stmt = db.prepare(`
+        UPDATE licencias SET
+          personalId = ?,
+          jerarquia = ?,
+          plaza = ?,
+          apellidoNombre = ?,
+          dni = ?,
+          fechaIngreso = ?,
+          tipoLicencia = ?,
+          anioPeriodo = ?,
+          diasHabilesTomados = ?,
+          sumaDiasViaje = ?,
+          disposicionViaje = ?,
+          diasPermitidosViaje = ?,
+          fueInterrumpida = ?,
+          fechaInterrupcion = ?,
+          motivoInterrupcion = ?,
+          diasRestantesDevueltos = ?,
+          observaciones = ?,
+          periodosDetalleJson = ?,
+          fechaSalida = ?,
+          delegacionId = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        l.personalId || 1,
+        l.jerarquia || null,
+        l.plaza || null,
+        l.apellidoNombre || null,
+        l.dni || null,
+        l.fechaIngreso || null,
+        l.tipoLicencia || 'Anual',
+        l.anioPeriodo || new Date().getFullYear(),
+        l.diasHabilesTomados || 0,
+        l.sumaDiasViaje ? 1 : 0,
+        l.disposicionViaje || null,
+        l.diasPermitidosViaje || 0,
+        l.fueInterrumpida ? 1 : 0,
+        l.fechaInterrupcion || null,
+        l.motivoInterrupcion || null,
+        l.diasRestantesDevueltos || 0,
+        l.observaciones || null,
+        periodosDetalleJson,
+        l.fechaSalida || null,
+        l.delegacionId || 1,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[PUT /api/licencias error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/licencias/:id', (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      db.prepare('DELETE FROM licencias WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[DELETE /api/licencias error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Numerario & Folios
@@ -1198,30 +1448,36 @@ function setupApiRoutes(app: express.Express) {
   });
 
   app.post('/api/numerario/folios', (req: Request, res: Response) => {
-    const f = req.body;
-    const anioVal = Number(f.anio) || new Date().getFullYear();
-    const caratulaVal = f.caratula || `Folio N° ${f.numero}/${anioVal}`;
-    const stmt = db.prepare(`
-      INSERT INTO folios_numerario (serieId, numero, rangoId, anio, caratula, asunto, destinatario, solicitante, observaciones, tipoDocumento, fecha, hora, usuarioAsigno, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(
-      f.serieId,
-      f.numero,
-      f.rangoId || null,
-      anioVal,
-      caratulaVal,
-      f.asunto || '',
-      f.destinatario || '',
-      f.solicitante || null,
-      f.observaciones || null,
-      f.tipoDocumento || 'Oficio',
-      f.fecha || new Date().toLocaleDateString('es-AR'),
-      f.hora || new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-      f.usuarioAsigno || 'sistema',
-      f.delegacionId || 1
-    );
-    res.json({ id: info.lastInsertRowid, success: true });
+    try {
+      const f = req.body;
+      const anioVal = Number(f.anio) || new Date().getFullYear();
+      const caratulaVal = f.caratula || `Folio N° ${f.numero}/${anioVal}`;
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO folios_numerario (id, serieId, numero, rangoId, anio, caratula, asunto, destinatario, solicitante, observaciones, tipoDocumento, fecha, hora, usuarioAsigno, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        f.id || null,
+        f.serieId,
+        f.numero,
+        f.rangoId || null,
+        anioVal,
+        caratulaVal,
+        f.asunto || '',
+        f.destinatario || '',
+        f.solicitante || null,
+        f.observaciones || null,
+        f.tipoDocumento || 'Oficio',
+        f.fecha || new Date().toLocaleDateString('es-AR'),
+        f.hora || new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+        f.usuarioAsigno || 'sistema',
+        f.delegacionId || 1
+      );
+      res.json({ id: f.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/numerario/folios error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.put('/api/numerario/folios/:id', (req: Request, res: Response) => {
@@ -1305,49 +1561,65 @@ function setupApiRoutes(app: express.Express) {
   });
 
   app.post('/api/personas', (req: Request, res: Response) => {
-    const p = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO personas (apellidoNombre, dni, observaciones, fechaRegistro, expedientesVinculados, delegacionId)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(
-      p.apellidoNombre,
-      p.dni,
-      p.observaciones || null,
-      p.fechaRegistro || new Date().toLocaleDateString('es-AR'),
-      JSON.stringify(Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : []),
-      p.delegacionId || null
-    );
-    res.json({ id: info.lastInsertRowid, success: true });
+    try {
+      const p = req.body;
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO personas (id, apellidoNombre, dni, observaciones, fechaRegistro, expedientesVinculados, delegacionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        p.id || null,
+        p.apellidoNombre || '',
+        p.dni || '',
+        p.observaciones || null,
+        p.fechaRegistro || new Date().toLocaleDateString('es-AR'),
+        JSON.stringify(Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : []),
+        p.delegacionId || null
+      );
+      res.json({ id: p.id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/personas error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.put('/api/personas/:id', (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    const p = req.body;
-    const stmt = db.prepare(`
-      UPDATE personas SET
-        apellidoNombre = ?,
-        dni = ?,
-        observaciones = ?,
-        expedientesVinculados = ?,
-        delegacionId = ?
-      WHERE id = ?
-    `);
-    stmt.run(
-      p.apellidoNombre,
-      p.dni,
-      p.observaciones || null,
-      JSON.stringify(Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : []),
-      p.delegacionId || null,
-      id
-    );
-    res.json({ success: true });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const p = req.body;
+      const stmt = db.prepare(`
+        UPDATE personas SET
+          apellidoNombre = ?,
+          dni = ?,
+          observaciones = ?,
+          expedientesVinculados = ?,
+          delegacionId = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        p.apellidoNombre || '',
+        p.dni || '',
+        p.observaciones || null,
+        JSON.stringify(Array.isArray(p.expedientesVinculados) ? p.expedientesVinculados : []),
+        p.delegacionId || null,
+        id
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[PUT /api/personas error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.delete('/api/personas/:id', (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
-    db.prepare('DELETE FROM personas WHERE id = ?').run(id);
-    res.json({ success: true });
+    try {
+      const id = parseInt(req.params.id, 10);
+      db.prepare('DELETE FROM personas WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[DELETE /api/personas error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Catálogos Dinámicos Compartidos
@@ -1357,10 +1629,15 @@ function setupApiRoutes(app: express.Express) {
   });
 
   app.post('/api/dynamic-catalogs', (req: Request, res: Response) => {
-    const { category, value, delegacionId } = req.body;
-    const stmt = db.prepare('INSERT INTO dynamic_catalogs (category, value, delegacionId) VALUES (?, ?, ?)');
-    const info = stmt.run(category, value, delegacionId || null);
-    res.json({ id: info.lastInsertRowid, success: true });
+    try {
+      const { id, category, value, delegacionId } = req.body;
+      const stmt = db.prepare('INSERT OR REPLACE INTO dynamic_catalogs (id, category, value, delegacionId) VALUES (?, ?, ?, ?)');
+      const info = stmt.run(id || null, category, value, delegacionId || null);
+      res.json({ id: id || info.lastInsertRowid, success: true });
+    } catch (err: any) {
+      console.error('[POST /api/dynamic-catalogs error]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.delete('/api/dynamic-catalogs/:id', (req: Request, res: Response) => {
