@@ -252,7 +252,9 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
           'Condición'
         ]
       ],
-      body: tableData,
+      body: tableData.length > 0
+        ? tableData
+        : [['-', '-', 'Sin causas PPI registradas', '-', '-', '-', '-', '-']],
       theme: 'grid',
       headStyles: {
         fillColor: [3, 105, 161], // Sky 700 / Celeste Policial

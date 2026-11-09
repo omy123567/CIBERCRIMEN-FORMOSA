@@ -384,12 +384,7 @@ export const LibroPdfOptionsModal: React.FC<LibroPdfOptionsModalProps> = ({
             <button
               type="button"
               onClick={handleOpenPreview}
-              disabled={filteredExpedientes.length === 0}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold rounded-xl transition-all shadow-xs ${
-                filteredExpedientes.length > 0
-                  ? 'bg-slate-800 hover:bg-slate-700 text-white'
-                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-              }`}
+              className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold rounded-xl transition-all shadow-xs bg-slate-800 hover:bg-slate-700 text-white"
               title="Abrir vista preliminar del documento antes de descargar"
             >
               <Eye className="w-3.5 h-3.5" />
@@ -399,12 +394,7 @@ export const LibroPdfOptionsModal: React.FC<LibroPdfOptionsModalProps> = ({
             <button
               type="button"
               onClick={handleDownloadDirect}
-              disabled={filteredExpedientes.length === 0}
-              className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white rounded-xl shadow-md transition-all active:scale-95 ${
-                filteredExpedientes.length > 0
-                  ? 'bg-blue-600 hover:bg-blue-700'
-                  : 'bg-slate-300 dark:bg-slate-800 cursor-not-allowed'
-              }`}
+              className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-white rounded-xl shadow-md transition-all active:scale-95 bg-blue-600 hover:bg-blue-700"
             >
               <Download className="w-4 h-4" />
               <span>Descargar PDF</span>

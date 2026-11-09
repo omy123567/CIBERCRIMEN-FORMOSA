@@ -26,25 +26,36 @@ export interface PersonalRosterOptions extends SgpPdfOptions {
   estadoRevista?: 'ALL' | 'DISPONIBLE' | 'LICENCIA';
 }
 
+export function safeText(val: any, fallback = ''): string {
+  if (val === null || val === undefined) return fallback;
+  const s = String(val).trim();
+  return s.length > 0 ? s : fallback;
+}
+
 /**
  * Draws the official Formosa police letterhead with dual logos and centered typography
  */
 export function drawSgpHeader(
   doc: jsPDF,
-  config: InstitutionalConfig,
-  reportTitle: string,
+  config?: InstitutionalConfig,
+  reportTitle?: string,
   subTitle?: string
 ): number {
+  const cfg = config || ({} as InstitutionalConfig);
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  const leftLogo = config.logoLeftUrl || '/logo-policia-formosa.png';
-  const rightLogo = config.logoRightUrl || config.logoDataUrl || '/logo-dgpc.png';
-  const mottoLeft = config.mottoLeft ?? '"La seguridad pública es una construcción colectiva"';
-  const mottoRight = config.mottoRight ?? 'D.G.P.C.';
+  const leftLogo = cfg.logoLeftUrl || '/logo-policia-formosa.png';
+  const rightLogo = cfg.logoRightUrl || cfg.logoDataUrl || '/logo-sisdic.png';
+  const mottoLeft = cfg.mottoLeft ?? '"La seguridad pública es una construcción colectiva"';
+  const mottoRight = cfg.mottoRight ?? 'D.G.P.C.';
 
   // 1. Left Logo (Escudo Policía de Formosa)
   try {
-    doc.addImage(leftLogo, 'PNG', 14, 7, 18, 18);
+    if (leftLogo && (leftLogo.startsWith('data:image') || typeof Image !== 'undefined')) {
+      doc.addImage(leftLogo, 'PNG', 14, 7, 18, 18);
+    } else {
+      throw new Error('Not loaded');
+    }
   } catch {
     doc.setDrawColor(30, 58, 138);
     doc.circle(23, 16, 8);
@@ -57,14 +68,18 @@ export function drawSgpHeader(
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(5);
     doc.setTextColor(100, 116, 139);
-    const splitMotto = doc.splitTextToSize(mottoLeft, 28);
+    const splitMotto = doc.splitTextToSize(safeText(mottoLeft), 28);
     doc.text(splitMotto, 23, 27, { align: 'center' });
   }
 
   // 2. Right Logo (Escudo D.G.P.C.)
   const rightX = pageWidth - 14 - 18;
   try {
-    doc.addImage(rightLogo, 'PNG', rightX, 7, 18, 18);
+    if (rightLogo && (rightLogo.startsWith('data:image') || typeof Image !== 'undefined')) {
+      doc.addImage(rightLogo, 'PNG', rightX, 7, 18, 18);
+    } else {
+      throw new Error('Not loaded');
+    }
   } catch {
     doc.setDrawColor(30, 58, 138);
     doc.circle(rightX + 9, 16, 8);
@@ -77,16 +92,16 @@ export function drawSgpHeader(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6);
     doc.setTextColor(30, 58, 138);
-    doc.text(mottoRight, rightX + 9, 27, { align: 'center' });
+    doc.text(safeText(mottoRight), rightX + 9, 27, { align: 'center' });
   }
 
   // 3. Center Typography (Deep Police Blue #1E3A8A, Centered)
   const centerX = pageWidth / 2;
   let endHeaderY = 32;
 
-  if (config.headerLines && config.headerLines.length > 0) {
+  if (cfg.headerLines && cfg.headerLines.length > 0) {
     let lineY = 10;
-    config.headerLines.forEach((line) => {
+    cfg.headerLines.forEach((line) => {
       const fontSize =
         line.size === 'XL' ? 9.5 : line.size === 'LG' ? 8.5 : line.size === 'MD' ? 7.5 : line.size === 'SM' ? 6.5 : 5.5;
 
@@ -99,16 +114,19 @@ export function drawSgpHeader(
           ? [100, 116, 139]
           : [15, 23, 42];
 
-      doc.setFont('helvetica', line.bold ? 'bold' : 'normal');
-      doc.setFontSize(fontSize);
-      doc.setTextColor(r, g, b);
-      doc.text(line.text, centerX, lineY, { align: 'center' });
+      const lineText = safeText(line.text, '');
+      if (lineText) {
+        doc.setFont('helvetica', line.bold ? 'bold' : 'normal');
+        doc.setFontSize(fontSize);
+        doc.setTextColor(r, g, b);
+        doc.text(lineText, centerX, lineY, { align: 'center' });
 
-      if (line.underline) {
-        const textW = doc.getTextWidth(line.text);
-        doc.setDrawColor(r, g, b);
-        doc.setLineWidth(0.3);
-        doc.line(centerX - textW / 2, lineY + 0.8, centerX + textW / 2, lineY + 0.8);
+        if (line.underline) {
+          const textW = doc.getTextWidth(lineText);
+          doc.setDrawColor(r, g, b);
+          doc.setLineWidth(0.3);
+          doc.line(centerX - textW / 2, lineY + 0.8, centerX + textW / 2, lineY + 0.8);
+        }
       }
 
       lineY += fontSize >= 9 ? 4.5 : fontSize >= 8 ? 4.2 : fontSize >= 7 ? 3.8 : 3.3;
@@ -118,17 +136,17 @@ export function drawSgpHeader(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(30, 58, 138);
-    doc.text((config.policeForce || 'POLICÍA DE LA PROVINCIA DE FORMOSA').toUpperCase(), centerX, 11, { align: 'center' });
+    doc.text(safeText(cfg.policeForce || 'POLICÍA DE LA PROVINCIA DE FORMOSA').toUpperCase(), centerX, 11, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(30, 58, 138);
-    doc.text((config.division || 'DIVISIÓN INVESTIGACIÓN CIBERCRIMEN').toUpperCase(), centerX, 15.5, { align: 'center' });
+    doc.text(safeText(cfg.division || 'DIVISIÓN INVESTIGACIÓN CIBERCRIMEN').toUpperCase(), centerX, 15.5, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(30, 58, 138);
-    const subText = (config.subdivision || 'DELEGACIÓN POLICÍA CIENTÍFICA LAGUNA BLANCA').toUpperCase();
+    const subText = safeText(cfg.subdivision || 'DELEGACIÓN POLICÍA CIENTÍFICA LAGUNA BLANCA').toUpperCase();
     doc.text(subText, centerX, 19.5, { align: 'center' });
     const subW = doc.getTextWidth(subText);
     doc.setDrawColor(30, 58, 138);
@@ -139,13 +157,13 @@ export function drawSgpHeader(
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
     doc.text(
-      config.addressLine1 || 'Calle San Martín e H. Irigoyen - Bº Centro - Laguna Blanca - C.P. 3613',
+      safeText(cfg.addressLine1 || 'Calle San Martín e H. Irigoyen - Bº Centro - Laguna Blanca - C.P. 3613'),
       centerX,
       24,
       { align: 'center' }
     );
     doc.text(
-      config.addressLine2 || 'Tel.: 3704-040169 / E-mail: pol.delgcrimlagunablanca@formosa.gov.ar',
+      safeText(cfg.addressLine2 || 'Tel.: 3704-040169 / E-mail: pol.delgcrimlagunablanca@formosa.gov.ar'),
       centerX,
       27.5,
       { align: 'center' }
@@ -162,13 +180,13 @@ export function drawSgpHeader(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
-  doc.text(reportTitle, 14, endHeaderY + 7);
+  doc.text(safeText(reportTitle, 'REPORTE OFICIAL'), 14, endHeaderY + 7);
 
   if (subTitle) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);
-    doc.text(subTitle, 14, endHeaderY + 11.5);
+    doc.text(safeText(subTitle), 14, endHeaderY + 11.5);
     return endHeaderY + 16;
   }
 
@@ -178,7 +196,8 @@ export function drawSgpHeader(
 /**
  * Draws official signature block without seal
  */
-export function drawSgpSignatureBlock(doc: jsPDF, config: InstitutionalConfig, startY?: number) {
+export function drawSgpSignatureBlock(doc: jsPDF, config?: InstitutionalConfig, startY?: number) {
+  const cfg = config || ({} as InstitutionalConfig);
   const pageHeight = doc.internal.pageSize.getHeight();
   const pageWidth = doc.internal.pageSize.getWidth();
   const y = startY && startY < pageHeight - 35 ? startY + 14 : pageHeight - 25;
@@ -194,19 +213,22 @@ export function drawSgpSignatureBlock(doc: jsPDF, config: InstitutionalConfig, s
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(30, 58, 138);
-  doc.text(config.footerTitle, rightX + boxWidth / 2, y + 4.5, { align: 'center' });
+  const footerTitle = safeText(cfg.footerTitle, 'Jefe Delegación D.D.P.C.L.B.');
+  doc.text(footerTitle, rightX + boxWidth / 2, y + 4.5, { align: 'center' });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(51, 65, 85);
-  doc.text(config.footerName, rightX + boxWidth / 2, y + 8.5, { align: 'center' });
+  const footerName = safeText(cfg.footerName, 'Firma y Sello de la Superioridad');
+  doc.text(footerName, rightX + boxWidth / 2, y + 8.5, { align: 'center' });
   doc.text('Firma y Aclaración', rightX + boxWidth / 2, y + 12.5, { align: 'center' });
 
-  if (config.textoPiePaginaPdf) {
+  const footerText = safeText(cfg.textoPiePaginaPdf, '');
+  if (footerText) {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(6.5);
     doc.setTextColor(148, 163, 184);
-    doc.text(config.textoPiePaginaPdf, 14, pageHeight - 6);
+    doc.text(footerText, 14, pageHeight - 6);
   }
 }
 
@@ -251,26 +273,40 @@ export function calculateEdad(fechaNacimiento?: string): string {
    ========================================================================================= */
 
 export function generateSgpDashboardReportDoc(
-  config: InstitutionalConfig,
-  yearSelected: string,
-  periodLabel: string,
-  stats: {
-    totalExpedientes: number;
-    enTramite: number;
-    elevados: number;
-    vencidos: number;
-    totalPersonasResguardo: number;
-    ppiCount: number;
-    movilesOperativos: number;
-    movilesTaller: number;
+  config?: InstitutionalConfig,
+  yearSelected = '2026',
+  periodLabel = 'Período Oficial',
+  stats?: {
+    totalExpedientes?: number;
+    enTramite?: number;
+    elevados?: number;
+    vencidos?: number;
+    totalPersonasResguardo?: number;
+    ppiCount?: number;
+    movilesOperativos?: number;
+    movilesTaller?: number;
   },
-  reqDistribution: { req: string; count: number }[],
-  courtDistribution: { court: string; count: number }[],
+  reqDistribution: { req: string; count: number }[] = [],
+  courtDistribution: { court: string; count: number }[] = [],
   options?: SgpPdfOptions
 ): jsPDF {
   const paperSize = options?.paperSize || 'a4';
   const orientation = options?.orientation || 'portrait';
   const doc = new jsPDF(orientation, 'mm', paperSize);
+
+  const st = stats || {
+    totalExpedientes: 0,
+    enTramite: 0,
+    elevados: 0,
+    vencidos: 0,
+    totalPersonasResguardo: 0,
+    ppiCount: 0,
+    movilesOperativos: 0,
+    movilesTaller: 0
+  };
+
+  const reqList = Array.isArray(reqDistribution) ? reqDistribution : [];
+  const courtList = Array.isArray(courtDistribution) ? courtDistribution : [];
 
   const startY = drawSgpHeader(
     doc,
@@ -283,13 +319,13 @@ export function generateSgpDashboardReportDoc(
     startY,
     head: [['Indicador Operativo', 'Cómputo Oficial', 'Situación / Regla']],
     body: [
-      ['Expedientes Totales Registrados', `${stats.totalExpedientes}`, `Causas ingresadas año ${yearSelected}`],
-      ['Expedientes en Trámite Activo', `${stats.enTramite}`, `En diligenciamiento por la instrucción`],
-      ['Expedientes Diligenciados / Elevados', `${stats.elevados}`, `Elevados con nota y recibo formal`],
-      ['Expedientes Vencidos', `${stats.vencidos}`, stats.vencidos > 0 ? 'ALERTA: Plazo judicial caducado' : 'Sin atrasos'],
-      ['Personas en Resguardo de Evidencia', `${stats.totalPersonasResguardo}`, 'Suma estricta por personas vinculadas'],
-      ['Causas con Personal Policial Involucrado (PPI)', `${stats.ppiCount}`, 'Sujetas a informe sumarial interno'],
-      ['Parque Automotor Operativo', `${stats.movilesOperativos} operativos`, `${stats.movilesTaller} en taller mecánico`]
+      ['Expedientes Totales Registrados', `${st.totalExpedientes ?? 0}`, `Causas ingresadas año ${yearSelected}`],
+      ['Expedientes en Trámite Activo', `${st.enTramite ?? 0}`, `En diligenciamiento por la instrucción`],
+      ['Expedientes Diligenciados / Elevados', `${st.elevados ?? 0}`, `Elevados con nota y recibo formal`],
+      ['Expedientes Vencidos', `${st.vencidos ?? 0}`, (st.vencidos ?? 0) > 0 ? 'ALERTA: Plazo judicial caducado' : 'Sin atrasos'],
+      ['Personas en Resguardo de Evidencia', `${st.totalPersonasResguardo ?? 0}`, 'Suma estricta por personas vinculadas'],
+      ['Causas con Personal Policial Involucrado (PPI)', `${st.ppiCount ?? 0}`, 'Sujetas a informe sumarial interno'],
+      ['Parque Automotor Operativo', `${st.movilesOperativos ?? 0} operativos`, `${st.movilesTaller ?? 0} en taller mecánico`]
     ],
     theme: 'grid',
     headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 8 },
@@ -305,7 +341,9 @@ export function generateSgpDashboardReportDoc(
   autoTable(doc, {
     startY: currentY + 3,
     head: [['Tipo de Requerimiento Operativo / Pericial', 'Cantidad / Personas']],
-    body: reqDistribution.map((r) => [r.req, r.count.toString()]),
+    body: reqList.length > 0
+      ? reqList.map((r) => [safeText(r.req, 'Requerimiento'), (r.count ?? 0).toString()])
+      : [['Sin requerimientos registrados', '0']],
     theme: 'striped',
     headStyles: { fillColor: [15, 23, 42], textColor: 255, fontSize: 7.5 },
     styles: { fontSize: 7, cellPadding: 2 }
@@ -320,7 +358,9 @@ export function generateSgpDashboardReportDoc(
   autoTable(doc, {
     startY: currentY + 3,
     head: [['Juzgado / Fuero Judicial', 'Expedientes Tramitados']],
-    body: courtDistribution.map((c) => [c.court, c.count.toString()]),
+    body: courtList.length > 0
+      ? courtList.map((c) => [safeText(c.court, 'Juzgado'), (c.count ?? 0).toString()])
+      : [['Sin juzgados registrados', '0']],
     theme: 'striped',
     headStyles: { fillColor: [15, 23, 42], textColor: 255, fontSize: 7.5 },
     styles: { fontSize: 7, cellPadding: 2 }
@@ -331,12 +371,12 @@ export function generateSgpDashboardReportDoc(
 }
 
 export function exportSgpDashboardReportPDF(
-  config: InstitutionalConfig,
-  yearSelected: string,
-  periodLabel: string,
-  stats: any,
-  reqDistribution: any,
-  courtDistribution: any,
+  config?: InstitutionalConfig,
+  yearSelected = '2026',
+  periodLabel = 'Período Oficial',
+  stats?: any,
+  reqDistribution?: any,
+  courtDistribution?: any,
   options?: SgpPdfOptions
 ) {
   const doc = generateSgpDashboardReportDoc(config, yearSelected, periodLabel, stats, reqDistribution, courtDistribution, options);
@@ -348,23 +388,24 @@ export function exportSgpDashboardReportPDF(
    ========================================================================================= */
 
 export function generateExpedientesLogbookDoc(
-  config: InstitutionalConfig,
-  expedientesList: Expediente[],
+  config?: InstitutionalConfig,
+  expedientesList: Expediente[] = [],
   filterTitle = 'Libro de Registro de Expedientes y Tareas Judiciales',
   options?: SgpPdfOptions
 ): jsPDF {
   const paperSize = options?.paperSize || 'a4';
   const orientation = options?.orientation || 'landscape';
   const doc = new jsPDF(orientation, 'mm', paperSize);
+  const list = Array.isArray(expedientesList) ? expedientesList : [];
 
   const startY = drawSgpHeader(
     doc,
     config,
     'LIBRO DE REGISTRO DE EXPEDIENTES JUDICIALES Y EVIDENCIAS',
-    `${filterTitle} • Total Causas: ${expedientesList.length} • Dependencia Oficial`
+    `${filterTitle} • Total Causas: ${list.length} • Dependencia Oficial`
   );
 
-  const rows = expedientesList.map((e) => {
+  const rows = list.map((e) => {
     let custom: any = {};
     try {
       custom = e.customFieldsJson ? JSON.parse(e.customFieldsJson) : {};
@@ -372,12 +413,12 @@ export function generateExpedientesLogbookDoc(
       // ignore
     }
 
-    const expAnio = `${e.nroExpediente}/${e.anio}`;
+    const expAnio = `${e.nroExpediente || '-'}/${e.anio || '-'}`;
     const fecha = e.fechaIngreso || '-';
 
     let oficioTexto = '-';
     if (custom.oficioNro) {
-      oficioTexto = `${custom.oficioNro}/${custom.oficioAnio || e.anio}/${custom.oficioLetras || 'S/L'}`;
+      oficioTexto = `${custom.oficioNro}/${custom.oficioAnio || e.anio || ''}/${custom.oficioLetras || 'S/L'}`;
     } else if (custom.oficioOrigen) {
       oficioTexto = custom.oficioOrigen;
     } else if (e.tipoOficio === 'Sin Oficio') {
@@ -392,7 +433,7 @@ export function generateExpedientesLogbookDoc(
 
     let resumen = custom.resumen || e.caratula || '-';
     if (custom.evidencePersons && custom.evidencePersons.length > 0 && !resumen.includes('Resguardo')) {
-      const pText = custom.evidencePersons.map((p: any) => `${p.fullName} (DNI ${p.dni})`).join(', ');
+      const pText = custom.evidencePersons.map((p: any) => `${p.fullName || ''} (DNI ${p.dni || ''})`).join(', ');
       resumen = `${resumen} | Personas: ${pText}`;
     }
 
@@ -426,14 +467,16 @@ export function generateExpedientesLogbookDoc(
     head: [
       ['Expediente/Año', 'Fecha', 'Oficio/Año/Letra', 'Juzgado', 'Dependencia', 'Tipo Req.', 'Resumen', 'Tarea realizada']
     ],
-    body: rows,
+    body: rows.length > 0
+      ? rows
+      : [['-', '-', '-', '-', '-', '-', 'Sin expedientes registrados en el período', '-']],
     theme: 'grid',
     headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 7, fontStyle: 'bold' },
     styles: { fontSize: isPortrait ? 5.5 : 6.5, cellPadding: isPortrait ? 1.5 : 2, overflow: 'linebreak' },
     didParseCell: (data) => {
       // Highlight PPI rows with celeste
-      if (data.section === 'body') {
-        const item = expedientesList[data.row.index];
+      if (data.section === 'body' && rows.length > 0) {
+        const item = list[data.row.index];
         if (item) {
           try {
             const parsed = item.customFieldsJson ? JSON.parse(item.customFieldsJson) : {};
@@ -449,7 +492,7 @@ export function generateExpedientesLogbookDoc(
     }
   });
 
-  drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable.finalY);
+  drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable?.finalY || startY + 20);
   return doc;
 }
 
@@ -468,16 +511,17 @@ export function exportExpedientesLogbookPDF(
    ========================================================================================= */
 
 export function generatePersonalRosterDoc(
-  config: InstitutionalConfig,
-  personalList: Personal[],
+  config?: InstitutionalConfig,
+  personalList: Personal[] = [],
   options?: PersonalRosterOptions
 ): jsPDF {
   const paperSize = options?.paperSize || 'a4';
   const orientation = options?.orientation || 'landscape';
   const doc = new jsPDF(orientation, 'mm', paperSize);
+  const list = Array.isArray(personalList) ? personalList : [];
 
   // Filter by Estado de Revista
-  let filtered = [...personalList];
+  let filtered = [...list];
   if (options?.estadoRevista === 'DISPONIBLE') {
     filtered = filtered.filter((p) => p.disponible);
   } else if (options?.estadoRevista === 'LICENCIA') {
@@ -493,7 +537,7 @@ export function generatePersonalRosterDoc(
 
   const isGrouped = options?.discriminarGrupos === true;
 
-  if (isGrouped) {
+  if (isGrouped && filtered.length > 0) {
     // Group by p.grupo
     const groupsMap = new Map<string, Personal[]>();
     filtered.forEach((p) => {
@@ -504,7 +548,7 @@ export function generatePersonalRosterDoc(
 
     let currentY = startY;
 
-    Array.from(groupsMap.entries()).forEach(([grupoName, members], gIdx) => {
+    Array.from(groupsMap.entries()).forEach(([grupoName, members]) => {
       // Group header bar
       if (currentY > doc.internal.pageSize.getHeight() - 40) {
         doc.addPage();
@@ -529,11 +573,11 @@ export function generatePersonalRosterDoc(
         }
         return [
           (mIdx + 1).toString(),
-          p.plaza,
-          p.jerarquia,
-          p.apellidoNombre,
-          p.dni,
-          p.fechaIngreso,
+          safeText(p.plaza, '-'),
+          safeText(p.jerarquia, '-'),
+          safeText(p.apellidoNombre, '-'),
+          safeText(p.dni, '-'),
+          safeText(p.fechaIngreso, '-'),
           `${calculateAntiguedad(p.fechaIngreso)} años`,
           p.disponible ? 'ACTIVO' : `LICENCIA (${p.motivoNoDisponible || '-'})`,
           custom.armaAsignada || `${custom.armaMarca || '-'} ${custom.armaSerie || ''}`,
@@ -550,7 +594,7 @@ export function generatePersonalRosterDoc(
         styles: { fontSize: 6.5, cellPadding: 1.8 }
       });
 
-      currentY = (doc as any).lastAutoTable.finalY + 8;
+      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : currentY + 20;
     });
 
     drawSgpSignatureBlock(doc, config, currentY);
@@ -566,12 +610,12 @@ export function generatePersonalRosterDoc(
 
       return [
         (idx + 1).toString(),
-        p.plaza,
-        p.jerarquia,
-        p.apellidoNombre,
-        p.dni,
-        p.grupo || '-',
-        p.fechaIngreso,
+        safeText(p.plaza, '-'),
+        safeText(p.jerarquia, '-'),
+        safeText(p.apellidoNombre, '-'),
+        safeText(p.dni, '-'),
+        safeText(p.grupo, '-'),
+        safeText(p.fechaIngreso, '-'),
         `${calculateAntiguedad(p.fechaIngreso)} años`,
         p.disponible ? 'ACTIVO' : `LICENCIA (${p.motivoNoDisponible || '-'})`,
         custom.armaAsignada || `${custom.armaMarca || '-'} ${custom.armaSerie || ''}`,
@@ -582,21 +626,23 @@ export function generatePersonalRosterDoc(
     autoTable(doc, {
       startY,
       head: [['#', 'Plaza', 'Jerarquía', 'Apellido y Nombre', 'DNI', 'Grupo / Guardia', 'Ingreso', 'Antigüedad', 'Situación', 'Armamento', 'Teléfono']],
-      body: tableData,
+      body: tableData.length > 0
+        ? tableData
+        : [['-', '-', '-', 'Sin personal policial registrado', '-', '-', '-', '-', '-', '-', '-']],
       theme: 'grid',
       headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 7.5 },
       styles: { fontSize: 6.8, cellPadding: 2 }
     });
 
-    drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable.finalY);
+    drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable?.finalY || startY + 20);
   }
 
   return doc;
 }
 
 export function exportPersonalRosterPDF(
-  config: InstitutionalConfig,
-  personalList: Personal[],
+  config?: InstitutionalConfig,
+  personalList: Personal[] = [],
   options?: PersonalRosterOptions
 ) {
   const doc = generatePersonalRosterDoc(config, personalList, options);
@@ -757,18 +803,19 @@ export function generateFichaPersonalDoc(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(30, 58, 138);
-  doc.text(config.footerTitle, rightSigX + colW / 2, sigY + 4, { align: 'center' });
+  const cfg = config || ({} as InstitutionalConfig);
+  doc.text(safeText(cfg.footerTitle, 'Jefe Delegación D.D.P.C.L.B.'), rightSigX + colW / 2, sigY + 4, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.setTextColor(51, 65, 85);
-  doc.text(config.footerName, rightSigX + colW / 2, sigY + 8, { align: 'center' });
+  doc.text(safeText(cfg.footerName, 'Firma y Sello de la Superioridad'), rightSigX + colW / 2, sigY + 8, { align: 'center' });
   doc.text('Firma y Sello de la Superioridad', rightSigX + colW / 2, sigY + 11.5, { align: 'center' });
 
-  if (config.textoPiePaginaPdf) {
+  if (cfg.textoPiePaginaPdf) {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(6.5);
     doc.setTextColor(148, 163, 184);
-    doc.text(config.textoPiePaginaPdf, 14, doc.internal.pageSize.getHeight() - 6);
+    doc.text(safeText(cfg.textoPiePaginaPdf), 14, doc.internal.pageSize.getHeight() - 6);
   }
 
   return doc;
@@ -918,18 +965,19 @@ export function generateFichaFormularioBlancoDoc(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(30, 58, 138);
-  doc.text(config.footerTitle, rightSigX + colW / 2, sigY + 4, { align: 'center' });
+  const cfg = config || ({} as InstitutionalConfig);
+  doc.text(safeText(cfg.footerTitle, 'Jefe Delegación D.D.P.C.L.B.'), rightSigX + colW / 2, sigY + 4, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.setTextColor(51, 65, 85);
-  doc.text(config.footerName, rightSigX + colW / 2, sigY + 8, { align: 'center' });
+  doc.text(safeText(cfg.footerName, 'Firma y Sello de la Superioridad'), rightSigX + colW / 2, sigY + 8, { align: 'center' });
   doc.text('Firma y Sello de la Superioridad', rightSigX + colW / 2, sigY + 11.5, { align: 'center' });
 
-  if (config.textoPiePaginaPdf) {
+  if (cfg.textoPiePaginaPdf) {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(6.5);
     doc.setTextColor(148, 163, 184);
-    doc.text(config.textoPiePaginaPdf, 14, doc.internal.pageSize.getHeight() - 6);
+    doc.text(safeText(cfg.textoPiePaginaPdf), 14, doc.internal.pageSize.getHeight() - 6);
   }
 
   return doc;
@@ -948,28 +996,30 @@ export function exportFichaFormularioBlancoPDF(
    ========================================================================================= */
 
 export function generateMovilFichaTecnicaDoc(
-  config: InstitutionalConfig,
-  movil: Movil,
-  reparaciones: Reparacion[],
-  options: {
-    includeIdentification: boolean;
-    includeCondition: boolean;
-    includeService: boolean;
-    includeRto: boolean;
-    includeInsurance: boolean;
-    includeRepairs: boolean;
-    includeSignature: boolean;
+  config?: InstitutionalConfig,
+  movil: Movil = {} as Movil,
+  reparaciones: Reparacion[] = [],
+  options?: {
+    includeIdentification?: boolean;
+    includeCondition?: boolean;
+    includeService?: boolean;
+    includeRto?: boolean;
+    includeInsurance?: boolean;
+    includeRepairs?: boolean;
+    includeSignature?: boolean;
     includeObservations?: boolean;
     conGraficos?: boolean;
-    repairPeriod: 'all' | 'weekly' | 'monthly' | 'annual' | 'custom';
+    repairPeriod?: 'all' | 'weekly' | 'monthly' | 'annual' | 'custom';
     customStartDate?: string;
     customEndDate?: string;
     paperSize?: SgpPaperSize;
     orientation?: SgpOrientation;
   }
 ): jsPDF {
-  const paperSize = options?.paperSize || 'a4';
-  const orientation = options?.orientation || 'portrait';
+  const opt = options || {};
+  const repList = Array.isArray(reparaciones) ? reparaciones : [];
+  const paperSize = opt.paperSize || 'a4';
+  const orientation = opt.orientation || 'portrait';
   const doc = new jsPDF(orientation, 'mm', paperSize);
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -1004,13 +1054,13 @@ export function generateMovilFichaTecnicaDoc(
   };
 
   // Section I: IDENTIFICACIÓN Y DATOS REGISTRALES
-  if (options.includeIdentification !== false) {
+  if (opt.includeIdentification !== false) {
     currentY = drawSectionHeader('I. IDENTIFICACIÓN Y DATOS REGISTRALES', currentY);
 
     const isMoto = movil.marca?.toLowerCase().includes('honda') ||
                    movil.modelo?.toLowerCase().includes('tornado') ||
                    movil.identificador?.toLowerCase().includes('moto') ||
-                   parseInt(movil.kmActual, 10) > 0;
+                   parseInt(movil.kmActual || '0', 10) > 0;
     const tipoMovilDesc = isMoto && movil.modelo?.toLowerCase().includes('tornado') ? 'Motocicleta' : 'Automóvil / Patrullero';
     const anioModelo = '2022';
 
@@ -1024,12 +1074,12 @@ export function generateMovilFichaTecnicaDoc(
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Interno Policial:', col1X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(`N° ${movil.identificador}`, col1X + 32, currentY);
+    doc.text(`N° ${safeText(movil.identificador, '-')}`, col1X + 32, currentY);
 
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Dominio (Patente):', col2X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.dominio || '-', col2X + 36, currentY);
+    doc.text(safeText(movil.dominio, '-'), col2X + 36, currentY);
     currentY += lineHeight;
 
     // Row 2
@@ -1048,36 +1098,36 @@ export function generateMovilFichaTecnicaDoc(
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Marca:', col1X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.marca || '-', col1X + 32, currentY);
+    doc.text(safeText(movil.marca, '-'), col1X + 32, currentY);
 
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Modelo:', col2X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.modelo || '-', col2X + 36, currentY);
+    doc.text(safeText(movil.modelo, '-'), col2X + 36, currentY);
     currentY += lineHeight;
 
     // Row 4
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Chasis N°:', col1X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.chasis || '-', col1X + 32, currentY);
+    doc.text(safeText(movil.chasis, '-'), col1X + 32, currentY);
 
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Motor N°:', col2X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.motor || '-', col2X + 36, currentY);
+    doc.text(safeText(movil.motor, '-'), col2X + 36, currentY);
     currentY += lineHeight;
 
     // Row 5
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Dependencia Asig.:', col1X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(config.subdivision || 'Delegación Policía Científica Laguna Blanca', col1X + 32, currentY);
+    doc.text(safeText(config?.subdivision, 'Delegación Policía Científica Laguna Blanca'), col1X + 32, currentY);
     currentY += lineHeight + 3;
   }
 
   // Section II: ESTADO OPERATIVO Y CONDICIÓN MECÁNICA
-  if (options.includeCondition !== false) {
+  if (opt.includeCondition !== false) {
     currentY = drawSectionHeader('II. ESTADO OPERATIVO Y CONDICIÓN MECÁNICA', currentY);
 
     const col1X = marginX + 4;
@@ -1088,7 +1138,7 @@ export function generateMovilFichaTecnicaDoc(
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Estado de Revista:', col1X, currentY);
     doc.setFont('helvetica', 'bold'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.condicion?.toUpperCase() || 'EN SERVICIO', col1X + 32, currentY);
+    doc.text(safeText(movil.condicion?.toUpperCase(), 'EN SERVICIO'), col1X + 32, currentY);
 
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Condición General:', col2X, currentY);
@@ -1098,7 +1148,7 @@ export function generateMovilFichaTecnicaDoc(
   }
 
   // Section III: MANTENIMIENTO PREVENTIVO (SERVICE)
-  if (options.includeService !== false) {
+  if (opt.includeService !== false) {
     currentY = drawSectionHeader('III. MANTENIMIENTO PREVENTIVO (SERVICE)', currentY);
 
     const col1X = marginX + 4;
@@ -1142,7 +1192,7 @@ export function generateMovilFichaTecnicaDoc(
 
     if (diff > 0) {
       doc.setFont('helvetica', 'bold'); doc.setTextColor(21, 128, 61); // Green #15803d
-      doc.text(`Faltan ${diff.toLocaleString('es-AR')} Km para el próximo servis (Faltan: ${diff.toLocaleString('es-AR')} Km)`, col1X + 32, currentY);
+      doc.text(`Faltan ${diff.toLocaleString('es-AR')} Km para el próximo servis`, col1X + 32, currentY);
     } else {
       doc.setFont('helvetica', 'bold'); doc.setTextColor(185, 28, 28); // Red #b91c1c
       doc.text(`¡SERVIS VENCIDO HACE ${Math.abs(diff).toLocaleString('es-AR')} KM!`, col1X + 32, currentY);
@@ -1150,7 +1200,7 @@ export function generateMovilFichaTecnicaDoc(
     currentY += lineHeight + 1;
 
     // Progress bar (when conGraficos is true or undefined)
-    if (options.conGraficos !== false) {
+    if (opt.conGraficos !== false) {
       const barX = marginX + 4;
       const barW = contentWidth - 8;
       const barH = 3;
@@ -1174,7 +1224,7 @@ export function generateMovilFichaTecnicaDoc(
   }
 
   // Section IV: VERIFICACIÓN TÉCNICA VEHICULAR (RTO / VTV)
-  if (options.includeRto !== false) {
+  if (opt.includeRto !== false) {
     currentY = drawSectionHeader('IV. VERIFICACIÓN TÉCNICA VEHICULAR (RTO / VTV)', currentY);
     const col1X = marginX + 4;
     doc.setFontSize(7.8);
@@ -1189,7 +1239,7 @@ export function generateMovilFichaTecnicaDoc(
   }
 
   // Section V: PÓLIZA Y COBERTURA DE SEGURO AUTOMOTOR
-  if (options.includeInsurance !== false) {
+  if (opt.includeInsurance !== false) {
     currentY = drawSectionHeader('V. PÓLIZA Y COBERTURA DE SEGURO AUTOMOTOR', currentY);
 
     const col1X = marginX + 4;
@@ -1200,45 +1250,46 @@ export function generateMovilFichaTecnicaDoc(
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Aseguradora:', col1X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.companiaSeguro || 'La Caja', col1X + 32, currentY);
+    doc.text(safeText(movil.companiaSeguro, 'La Caja'), col1X + 32, currentY);
 
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Póliza N°:', col2X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.numeroPoliza || '51900187668', col2X + 36, currentY);
+    doc.text(safeText(movil.numeroPoliza, '-'), col2X + 36, currentY);
     currentY += lineHeight;
 
     doc.setFont('helvetica', 'bold'); doc.setTextColor(51, 65, 85);
     doc.text('Vencimiento Seguro:', col1X, currentY);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
-    doc.text(movil.vencimientoSeguro || '13/10/2026', col1X + 32, currentY);
+    doc.text(safeText(movil.vencimientoSeguro, '-'), col1X + 32, currentY);
     currentY += lineHeight + 3;
   }
 
   // Section VI: HISTORIAL DE REPARACIONES Y MANTENIMIENTO CORRECTIVO
-  if (options.includeRepairs !== false) {
+  if (opt.includeRepairs !== false) {
     currentY = drawSectionHeader('VI. HISTORIAL DE REPARACIONES Y MANTENIMIENTO CORRECTIVO', currentY);
 
-    const filtered = reparaciones.filter((r) => {
-      if (options.repairPeriod === 'all') return true;
+    const filtered = repList.filter((r) => {
+      if (opt.repairPeriod === 'all' || !opt.repairPeriod) return true;
+      if (!r.fecha) return true;
       const parts = r.fecha.split('/');
       if (parts.length !== 3) return true;
       const repDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
       const now = new Date();
 
-      if (options.repairPeriod === 'weekly') {
+      if (opt.repairPeriod === 'weekly') {
         const diffDays = (now.getTime() - repDate.getTime()) / (1000 * 3600 * 24);
         return diffDays >= 0 && diffDays <= 7;
       }
-      if (options.repairPeriod === 'monthly') {
+      if (opt.repairPeriod === 'monthly') {
         return repDate.getMonth() === now.getMonth() && repDate.getFullYear() === now.getFullYear();
       }
-      if (options.repairPeriod === 'annual') {
+      if (opt.repairPeriod === 'annual') {
         return repDate.getFullYear() === now.getFullYear();
       }
-      if (options.repairPeriod === 'custom' && options.customStartDate && options.customEndDate) {
-        const start = new Date(options.customStartDate);
-        const end = new Date(options.customEndDate);
+      if (opt.repairPeriod === 'custom' && opt.customStartDate && opt.customEndDate) {
+        const start = new Date(opt.customStartDate);
+        const end = new Date(opt.customEndDate);
         return repDate >= start && repDate <= end;
       }
       return true;
@@ -1246,14 +1297,13 @@ export function generateMovilFichaTecnicaDoc(
 
     const repairRows = filtered.length > 0
       ? filtered.map((r) => [
-          r.fecha,
-          `[${r.tallerMecanico.includes('Gomer') ? 'Gomería / Neumáticos' : 'Mecánica / Service'}] ${r.descripcion}`,
-          r.repuestosCambiados || r.descripcion,
-          `${r.tallerMecanico} [Reparado] $${r.costoTotal.toLocaleString('es-AR')}`
+          r.fecha || '-',
+          `[${(r.tallerMecanico || '').includes('Gomer') ? 'Gomería / Neumáticos' : 'Mecánica / Service'}] ${r.descripcion || '-'}`,
+          r.repuestosCambiados || r.descripcion || '-',
+          `${r.tallerMecanico || '-'} [Reparado] $${(r.costoTotal || 0).toLocaleString('es-AR')}`
         ])
       : [
-          ['17/10/2026', '[Gomería / Neumáticos] cambio Cubierta Trasera.', 'cambio Cubierta Trasera.', 'Taller de la Localidad MM [Reparado] $20000'],
-          ['13/10/2026', '[Distribución y Correas] cambio de juego de transmisión', 'se realizó el cambio de juego transmisión de la Motorizada', 'Taller de la Localidad El Fénix [Reparado]']
+          ['-', 'Sin reparaciones registradas en el período', '-', '-']
         ];
 
     autoTable(doc, {
@@ -1283,17 +1333,17 @@ export function generateMovilFichaTecnicaDoc(
       }
     });
 
-    currentY = (doc as any).lastAutoTable.finalY + 5;
+    currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 5 : currentY + 15;
   }
 
   // Section VII: OBSERVACIONES GENERALES Y NOVEDADES
-  if (options.includeObservations !== false) {
+  if (opt.includeObservations !== false) {
     currentY = drawSectionHeader('VII. OBSERVACIONES GENERALES Y NOVEDADES', currentY);
     const col1X = marginX + 4;
     doc.setFontSize(7.8);
     doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42);
     doc.text(
-      movil.observaciones || 'Sin observaciones mecánicas registradas a la fecha.',
+      safeText(movil.observaciones, 'Sin observaciones mecánicas registradas a la fecha.'),
       col1X,
       currentY
     );
@@ -1301,7 +1351,7 @@ export function generateMovilFichaTecnicaDoc(
   }
 
   // Signature Block if requested
-  if (options.includeSignature) {
+  if (opt.includeSignature) {
     drawSgpSignatureBlock(doc, config, currentY);
   }
 
@@ -1310,13 +1360,13 @@ export function generateMovilFichaTecnicaDoc(
 
 
 export function exportMovilFichaTecnicaPDF(
-  config: InstitutionalConfig,
-  movil: Movil,
-  reparaciones: Reparacion[],
-  options: any
+  config?: InstitutionalConfig,
+  movil?: Movil,
+  reparaciones: Reparacion[] = [],
+  options?: any
 ) {
-  const doc = generateMovilFichaTecnicaDoc(config, movil, reparaciones, options);
-  doc.save(`SGP_Ficha_Movil_${movil.identificador}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  const doc = generateMovilFichaTecnicaDoc(config, movil || ({} as Movil), reparaciones, options);
+  doc.save(`SGP_Ficha_Movil_${movil?.identificador || 'Vehiculo'}_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 /* =========================================================================================
@@ -1324,8 +1374,8 @@ export function exportMovilFichaTecnicaPDF(
    ========================================================================================= */
 
 export function generateRecargoPlanillaDoc(
-  config: InstitutionalConfig,
-  recargo: Recargo,
+  config?: InstitutionalConfig,
+  recargo: Recargo = {} as Recargo,
   options?: SgpPdfOptions
 ): jsPDF {
   const paperSize = options?.paperSize || 'a4';
@@ -1336,19 +1386,19 @@ export function generateRecargoPlanillaDoc(
     doc,
     config,
     'PLANILLA DE RECARGO DE SERVICIO Y ADICIONAL',
-    `Fecha: ${recargo.fecha} • Horario: ${recargo.horarioDesde} a ${recargo.horarioHasta} hs (${recargo.totalHoras} Horas)`
+    `Fecha: ${safeText(recargo.fecha, '-')} • Horario: ${safeText(recargo.horarioDesde, '-')} a ${safeText(recargo.horarioHasta, '-')} hs (${recargo.totalHoras ?? 0} Horas)`
   );
 
   autoTable(doc, {
     startY,
     head: [['Detalle del Servicio', 'Información']],
     body: [
-      ['Personal Policial Designado', `${recargo.personalJerarquia} ${recargo.personalNombre}`],
-      ['Tipo de Recargo', recargo.tipoRecargo],
-      ['Lugar / Destino de Cobertura', recargo.lugarDestino],
-      ['Horario Cumplido', `${recargo.horarioDesde} a ${recargo.horarioHasta} hs`],
-      ['Total de Horas Afectadas', `${recargo.totalHoras} horas`],
-      ['Observaciones', recargo.observaciones || 'Sin novedades']
+      ['Personal Policial Designado', `${safeText(recargo.personalJerarquia, '')} ${safeText(recargo.personalNombre, '-')}`.trim()],
+      ['Tipo de Recargo', safeText(recargo.tipoRecargo, '-')],
+      ['Lugar / Destino de Cobertura', safeText(recargo.lugarDestino, '-')],
+      ['Horario Cumplido', `${safeText(recargo.horarioDesde, '-')} a ${safeText(recargo.horarioHasta, '-')} hs`],
+      ['Total de Horas Afectadas', `${recargo.totalHoras ?? 0} horas`],
+      ['Observaciones', safeText(recargo.observaciones, 'Sin novedades')]
     ],
     theme: 'grid',
     headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 8 },
@@ -1356,13 +1406,13 @@ export function generateRecargoPlanillaDoc(
     columnStyles: { 0: { cellWidth: 50, fontStyle: 'bold' } }
   });
 
-  drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable.finalY);
+  drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable?.finalY || startY + 20);
   return doc;
 }
 
-export function exportRecargoPlanillaPDF(config: InstitutionalConfig, recargo: Recargo, options?: SgpPdfOptions) {
+export function exportRecargoPlanillaPDF(config?: InstitutionalConfig, recargo: Recargo = {} as Recargo, options?: SgpPdfOptions) {
   const doc = generateRecargoPlanillaDoc(config, recargo, options);
-  doc.save(`SGP_Recargo_${recargo.fecha.replace(/\//g, '-')}_${recargo.personalNombre.replace(/[^a-zA-Z]/g, '_')}.pdf`);
+  doc.save(`SGP_Recargo_${(recargo.fecha || 'Fecha').replace(/\//g, '-')}_${(recargo.personalNombre || 'Personal').replace(/[^a-zA-Z]/g, '_')}.pdf`);
 }
 
 /* =========================================================================================
@@ -1370,46 +1420,47 @@ export function exportRecargoPlanillaPDF(config: InstitutionalConfig, recargo: R
    ========================================================================================= */
 
 export function generateCharlasDoc(
-  config: InstitutionalConfig,
-  charlasList: Charla[],
+  config?: InstitutionalConfig,
+  charlasList: Charla[] = [],
   options?: SgpPdfOptions
 ): jsPDF {
   const paperSize = options?.paperSize || 'a4';
   const orientation = options?.orientation || 'landscape';
   const doc = new jsPDF(orientation, 'mm', paperSize);
+  const list = Array.isArray(charlasList) ? charlasList : [];
 
   const startY = drawSgpHeader(
     doc,
     config,
     'REGISTRO OFICIAL DE CHARLAS Y ACTIVIDADES PREVENTIVAS',
-    `Total de Actividades: ${charlasList.length} • Emisión: ${new Date().toLocaleDateString('es-AR')}`
+    `Total de Actividades: ${list.length} • Emisión: ${new Date().toLocaleDateString('es-AR')}`
   );
 
-  const rows = charlasList.map((c, i) => [
+  const rows = list.map((c, i) => [
     (i + 1).toString(),
-    c.fecha,
-    c.localidad,
-    c.lugarInstitucion,
-    c.temaTratado,
-    c.personalDesignado || '-',
-    `${c.cantidadAsistentes} pers.`,
-    c.observaciones || '-'
+    safeText(c.fecha, '-'),
+    safeText(c.localidad, '-'),
+    safeText(c.lugarInstitucion, '-'),
+    safeText(c.temaTratado, '-'),
+    safeText(c.personalDesignado, '-'),
+    `${c.cantidadAsistentes ?? 0} pers.`,
+    safeText(c.observaciones, '-')
   ]);
 
   autoTable(doc, {
     startY,
     head: [['#', 'Fecha', 'Localidad', 'Institución / Lugar', 'Temática Abordada', 'Disertante a Cargo', 'Asistentes', 'Observaciones']],
-    body: rows,
+    body: rows.length > 0 ? rows : [['-', '-', '-', 'Sin actividades registradas', '-', '-', '-', '-']],
     theme: 'grid',
     headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 7.5 },
     styles: { fontSize: 7, cellPadding: 2 }
   });
 
-  drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable.finalY);
+  drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable?.finalY || startY + 20);
   return doc;
 }
 
-export function exportCharlasPDF(config: InstitutionalConfig, charlasList: Charla[], options?: SgpPdfOptions) {
+export function exportCharlasPDF(config?: InstitutionalConfig, charlasList: Charla[] = [], options?: SgpPdfOptions) {
   const doc = generateCharlasDoc(config, charlasList, options);
   doc.save(`SGP_Charlas_Prevencion_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
@@ -1419,31 +1470,32 @@ export function exportCharlasPDF(config: InstitutionalConfig, charlasList: Charl
    ========================================================================================= */
 
 export function generateCuatrienioDoc(
-  config: InstitutionalConfig,
-  personal: Personal,
-  cuatrienio: CuatrienioResumen,
-  licencias: Licencia[],
+  config?: InstitutionalConfig,
+  personal: Personal = {} as Personal,
+  cuatrienio: CuatrienioResumen = {} as CuatrienioResumen,
+  licencias: Licencia[] = [],
   options?: SgpPdfOptions
 ): jsPDF {
   const paperSize = options?.paperSize || 'a4';
   const orientation = options?.orientation || 'portrait';
   const doc = new jsPDF(orientation, 'mm', paperSize);
+  const licList = Array.isArray(licencias) ? licencias : [];
 
   const startY = drawSgpHeader(
     doc,
     config,
     'ESTADO DE LICENCIAS Y CUATRIENIO POLICIAL INDIVIDUAL',
-    `Efectivo: ${personal.jerarquia} ${personal.apellidoNombre} • DNI: ${personal.dni} • Plaza: ${personal.plaza}`
+    `Efectivo: ${safeText(personal.jerarquia, '')} ${safeText(personal.apellidoNombre, 'Personal')} • DNI: ${safeText(personal.dni, '-')} • Plaza: ${safeText(personal.plaza, '-')}`
   );
 
   autoTable(doc, {
     startY,
     head: [['Dato Funcional', 'Valor Oficial']],
     body: [
-      ['Fecha de Ingreso Policial', personal.fechaIngreso],
-      ['Antigüedad Oficial', `${cuatrienio.antiguedadAnios} años calendario (Cálculo estricto)`],
-      ['Escala Anual Correspondiente', `${cuatrienio.escalaDiasBase} días hábiles`],
-      ['Total Días Disponibles (Cuatrienio)', `${cuatrienio.totalSaldoDisponible} días hábiles`]
+      ['Fecha de Ingreso Policial', safeText(personal.fechaIngreso, '-')],
+      ['Antigüedad Oficial', `${cuatrienio.antiguedadAnios ?? 0} años calendario (Cálculo estricto)`],
+      ['Escala Anual Correspondiente', `${cuatrienio.escalaDiasBase ?? 0} días hábiles`],
+      ['Total Días Disponibles (Cuatrienio)', `${cuatrienio.totalSaldoDisponible ?? 0} días hábiles`]
     ],
     theme: 'grid',
     headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 8 },
@@ -1451,43 +1503,44 @@ export function generateCuatrienioDoc(
     columnStyles: { 0: { cellWidth: 55, fontStyle: 'bold' } }
   });
 
-  let currentY = (doc as any).lastAutoTable.finalY + 8;
+  let currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : startY + 30;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(30, 58, 138);
   doc.text('ESTADO DETALLADO DEL CUATRIENIO (4 Períodos Independientes)', 14, currentY);
 
-  const periodRows = cuatrienio.periodos.map((p) => [
+  const periods = Array.isArray(cuatrienio.periodos) ? cuatrienio.periodos : [];
+  const periodRows = periods.map((p) => [
     `Período ${p.anio}`,
-    `${p.diasAsignados} días`,
-    `${p.diasTomados} días`,
-    `${p.diasDevueltos} días`,
-    `${p.saldoRestante} días`,
-    p.estado
+    `${p.diasAsignados ?? 0} días`,
+    `${p.diasTomados ?? 0} días`,
+    `${p.diasDevueltos ?? 0} días`,
+    `${p.saldoRestante ?? 0} días`,
+    p.estado || '-'
   ]);
 
   autoTable(doc, {
     startY: currentY + 3,
     head: [['Período Anual', 'Asignados', 'Tomados', 'Devueltos', 'Saldo Restante', 'Estado Período']],
-    body: periodRows,
+    body: periodRows.length > 0 ? periodRows : [['-', '-', '-', '-', '-', 'Sin períodos calculados']],
     theme: 'striped',
     headStyles: { fillColor: [15, 23, 42], textColor: 255, fontSize: 7.5 },
     styles: { fontSize: 7, cellPadding: 2 }
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 8;
+  currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : currentY + 25;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(30, 58, 138);
   doc.text('HISTORIAL DE LICENCIAS IMPUTADAS', 14, currentY);
 
-  const licRows = licencias.map((l) => [
-    l.tipoLicencia,
-    l.anioPeriodo.toString(),
-    `${l.diasHabilesTomados} días`,
-    l.sumaDiasViaje ? `Sí (${l.diasPermitidosViaje}d - Disp. ${l.disposicionViaje || '-'})` : 'No',
-    l.fueInterrumpida ? `Sí (${l.diasRestantesDevueltos}d devueltos)` : 'No',
-    l.observaciones || '-'
+  const licRows = licList.map((l) => [
+    safeText(l.tipoLicencia, '-'),
+    (l.anioPeriodo ?? '').toString(),
+    `${l.diasHabilesTomados ?? 0} días`,
+    l.sumaDiasViaje ? `Sí (${l.diasPermitidosViaje ?? 0}d - Disp. ${l.disposicionViaje || '-'})` : 'No',
+    l.fueInterrumpida ? `Sí (${l.diasRestantesDevueltos ?? 0}d devueltos)` : 'No',
+    safeText(l.observaciones, '-')
   ]);
 
   autoTable(doc, {
@@ -1499,17 +1552,17 @@ export function generateCuatrienioDoc(
     styles: { fontSize: 7, cellPadding: 2 }
   });
 
-  drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable.finalY);
+  drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable?.finalY || currentY + 20);
   return doc;
 }
 
 export function exportCuatrienioLicenciasPDF(
-  config: InstitutionalConfig,
-  personal: Personal,
-  cuatrienio: CuatrienioResumen,
-  licencias: Licencia[],
+  config?: InstitutionalConfig,
+  personal: Personal = {} as Personal,
+  cuatrienio: CuatrienioResumen = {} as CuatrienioResumen,
+  licencias: Licencia[] = [],
   options?: SgpPdfOptions
 ) {
   const doc = generateCuatrienioDoc(config, personal, cuatrienio, licencias, options);
-  doc.save(`SGP_Cuatrienio_${personal.apellidoNombre.replace(/[^a-zA-Z]/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`SGP_Cuatrienio_${(personal.apellidoNombre || 'Personal').replace(/[^a-zA-Z]/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
 }

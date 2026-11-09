@@ -101,34 +101,55 @@ export const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
 
   if (!isOpen || !pdfBlob) return null;
 
-  const resolvedSource = dataUri || blobUrl;
+  // Prefer stable blobUrl for native browser PDF plugin, fallback to dataUri
+  const resolvedSource = blobUrl || dataUri;
 
   const handleDownload = () => {
-    if (!resolvedSource) return;
     const cleanFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
-    const a = document.createElement('a');
-    a.href = resolvedSource;
-    a.download = cleanFilename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    if (pdfBlob) {
+      const downloadUrl = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = downloadUrl;
+      a.download = cleanFilename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(downloadUrl);
+      }, 3000);
+      return;
+    }
+
+    if (resolvedSource) {
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = resolvedSource;
+      a.download = cleanFilename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+      }, 1000);
+    }
   };
 
   const handleOpenNewTab = () => {
-    if (!resolvedSource) return;
-    // Open in native full browser window
-    const win = window.open();
-    if (win) {
-      win.document.write(
-        `<html><head><title>${title}</title><style>body,html{margin:0;padding:0;height:100%;overflow:hidden;background:#0f172a;}</style></head><body><embed width="100%" height="100%" name="plugin" src="${resolvedSource}" type="application/pdf"></body></html>`
-      );
-    } else {
+    if (pdfBlob) {
+      const tabUrl = URL.createObjectURL(pdfBlob);
+      window.open(tabUrl, '_blank');
+      return;
+    }
+    if (resolvedSource) {
       window.open(resolvedSource, '_blank');
     }
   };
 
   const handlePrint = () => {
-    if (!resolvedSource) return;
     const iframe = document.getElementById('pdf-preview-iframe') as HTMLIFrameElement;
     if (iframe && iframe.contentWindow) {
       try {
