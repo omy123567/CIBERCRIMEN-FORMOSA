@@ -93,6 +93,7 @@ export interface PersonaInvestigada {
 }
 
 export interface PersonalCustomFields {
+  cedulaProvincial?: string;
   telefono?: string;
   domicilio?: string;
   localidad?: string;
@@ -136,6 +137,7 @@ export interface Personal {
   plaza: string;
   apellidoNombre: string;
   dni: string;
+  cedulaProvincial?: string;
   fechaNacimiento: string; // DD/MM/AAAA
   fechaIngreso: string; // DD/MM/AAAA - FUNDAMENTAL para antigüedad
   grupo: string; // "Guardia A", "Guardia B", "Servicio Externo", "Administración"
@@ -200,11 +202,11 @@ export interface Recargo {
 export interface Charla {
   id?: number;
   fecha: string; // DD/MM/AAAA
-  lugarInstitucion: string;
+  hora?: string; // HH:mm
   localidad: string;
+  lugarInstitucion: string;
   temaTratado: string;
   personalDesignado: string;
-  cantidadAsistentes: number;
   observaciones: string;
   delegacionId: number;
 }
@@ -338,14 +340,27 @@ export interface InstitutionalConfig {
   headerLines?: MembreteLine[]; // Líneas de texto centrales dinámicas
 }
 
-export type StandardUserRole = 'Operador' | 'Administrador' | 'superusuario';
+export type StandardUserRole =
+  | 'Solo Lectura'
+  | 'Cargador de Datos'
+  | 'Operador'
+  | 'Perito Forense'
+  | 'Jefe de Turno'
+  | 'Auditor'
+  | 'Administrador'
+  | 'superusuario';
 export type UserRole = StandardUserRole | string;
 
 export interface CustomRoleDefinition {
   id?: number;
   nombre: string;
   descripcion?: string;
+  canCreate?: boolean;
+  canEdit?: boolean;
   canDelete: boolean;
+  readOnly?: boolean;
+  canExport?: boolean;
+  canResetCounters?: boolean;
   allowedModules: string[];
   allDelegacionesAccess?: boolean;
   canAdminModules?: boolean;
@@ -361,10 +376,43 @@ export interface SisPolUser {
   password: string;
   rol: UserRole;
   delegacionId: number;
+  canCreate?: boolean;
+  canEdit?: boolean;
   canDelete: boolean;
+  readOnly?: boolean;
+  canExport?: boolean;
+  canResetCounters?: boolean;
   allowedModules?: string[];
   allowedDelegacionIds?: number[];
   canAdminModules?: boolean;
+}
+
+export type AuditCategory =
+  | 'ACCESO'
+  | 'CREACION'
+  | 'MODIFICACION'
+  | 'ELIMINACION'
+  | 'RESETEO'
+  | 'SEGURIDAD'
+  | 'RESPALDO';
+
+export interface AuditLogEntry {
+  id?: number;
+  timestamp: string;
+  fechaDia: string;
+  hora: string;
+  categoria: AuditCategory;
+  operacion: string;
+  modulo: string;
+  entidad?: string;
+  entidadId?: string;
+  descripcion: string;
+  detallesJson?: string;
+  usuario: string;
+  usuarioNombre?: string;
+  usuarioRol?: string;
+  delegacionId?: number;
+  ipAddress?: string;
 }
 
 export interface SisPolDelegacion {
@@ -382,6 +430,9 @@ export interface NavModuleItem {
   order: number;
   enabled: boolean;
   parentModuleId?: string | null;
+  isFolderGroup?: boolean;
+  folderIcon?: string;
+  folderColor?: string;
 }
 
 export interface NumerarioSerie {

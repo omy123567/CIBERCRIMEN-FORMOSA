@@ -35,6 +35,7 @@ import { AttachmentZoomModal } from '../common/AttachmentZoomModal';
 import { PdfPreviewModal } from '../common/PdfPreviewModal';
 import { drawSgpHeader, drawSgpSignatureBlock } from '../../utils/sgpPdfGenerator';
 import { db, sgpManager } from '../../db/dexieDb';
+import { usePermissions } from '../../context/PermissionsContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -59,6 +60,7 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
   onRefresh,
   onOpenExpediente
 }) => {
+  const perms = usePermissions();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterJerarquia, setFilterJerarquia] = useState('');
   const [filterJuzgado, setFilterJuzgado] = useState('');
@@ -180,6 +182,7 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
 
   // Open modal for new PPI case
   const handleOpenNewPpiCase = () => {
+    if (!perms.canCreate) return;
     const defaultPpiData: Partial<Expediente> = {
       nroExpediente: '',
       anio: new Date().getFullYear().toString(),
@@ -201,6 +204,7 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
 
   // Export PDF Report with Centered Letterhead and Preview Modal
   const handleExportPdf = () => {
+    if (!perms.canExport) return;
     const doc = new jsPDF({ orientation: 'landscape', format: 'a4' });
     const todayStr = new Date().toLocaleDateString('es-AR');
 
@@ -301,6 +305,7 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
 
   // Export CSV
   const handleExportCsv = () => {
+    if (!perms.canExport) return;
     const headers = [
       'Expediente',
       'Año',
@@ -410,31 +415,37 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={handleExportPdf}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-sky-950 hover:bg-sky-900 text-sky-200 border border-sky-800 rounded-xl transition-all shadow-xs"
-            title="Exportar reporte oficial en PDF"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Reporte PDF</span>
-          </button>
+          {perms.canExport && (
+            <>
+              <button
+                onClick={handleExportPdf}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-sky-950 hover:bg-sky-900 text-sky-200 border border-sky-800 rounded-xl transition-all shadow-xs"
+                title="Exportar reporte oficial en PDF"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Reporte PDF</span>
+              </button>
 
-          <button
-            onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-all shadow-xs"
-            title="Exportar archivo CSV / Excel"
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Planilla CSV</span>
-          </button>
+              <button
+                onClick={handleExportCsv}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-all shadow-xs"
+                title="Exportar archivo CSV / Excel"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Planilla CSV</span>
+              </button>
+            </>
+          )}
 
-          <button
-            onClick={handleOpenNewPpiCase}
-            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 rounded-xl shadow-md transition-all active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Nueva Causa PPI</span>
-          </button>
+          {perms.canCreate && (
+            <button
+              onClick={handleOpenNewPpiCase}
+              className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 rounded-xl shadow-md transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Nueva Causa PPI</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -665,13 +676,15 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
           <p className="text-xs text-slate-500 max-w-md mx-auto">
             Para registrar una nueva causa con efectivo policial involucrado, presione el botón "+ Nueva Causa PPI" arriba o marque la casilla correspondiente al cargar un expediente.
           </p>
-          <button
-            onClick={handleOpenNewPpiCase}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-xl transition-all shadow-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Registrar Primera Causa PPI</span>
-          </button>
+          {perms.canCreate && (
+            <button
+              onClick={handleOpenNewPpiCase}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-xl transition-all shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Registrar Primera Causa PPI</span>
+            </button>
+          )}
         </div>
       ) : viewMode === 'cards' ? (
         /* ================= CARDS VIEW ================= */
@@ -833,16 +846,18 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
                       Ver Detalle
                     </button>
 
-                    <button
-                      onClick={() => {
-                        setEditingExpediente(exp);
-                        setIsFormOpen(true);
-                      }}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg transition-all"
-                    >
-                      <Edit className="w-3.5 h-3.5" />
-                      <span>Editar</span>
-                    </button>
+                    {perms.canEdit && (
+                      <button
+                        onClick={() => {
+                          setEditingExpediente(exp);
+                          setIsFormOpen(true);
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg transition-all"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        <span>Editar</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -943,16 +958,18 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => {
-                              setEditingExpediente(exp);
-                              setIsFormOpen(true);
-                            }}
-                            className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950"
-                            title="Editar Causa"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
+                          {perms.canEdit && (
+                            <button
+                              onClick={() => {
+                                setEditingExpediente(exp);
+                                setIsFormOpen(true);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950"
+                              title="Editar Causa"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1077,6 +1094,7 @@ export const PpiModule: React.FC<PpiModuleProps> = ({
           setEditingExpediente(null);
         }}
         onSave={async (savedExp) => {
+          if (savedExp.id ? !perms.canEdit : !perms.canCreate) return;
           const expToSave = {
             ...savedExp,
             delegacionId: savedExp.delegacionId || delegacionId || 1

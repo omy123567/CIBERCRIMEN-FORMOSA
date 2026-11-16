@@ -12,12 +12,15 @@ import {
 } from 'lucide-react';
 import { NumerarioSerie } from '../../types/sgp';
 import { sgpManager } from '../../db/dexieDb';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface SeriesManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   series: NumerarioSerie[];
   delegacionId: number;
+  initialEditSerie?: NumerarioSerie | null;
+  initialOpenCreate?: boolean;
   onRefresh: () => void;
   onSelectSerie: (id: number) => void;
 }
@@ -32,14 +35,25 @@ const COLOR_OPTIONS = [
   { id: 'cyan', label: 'Cian Tecnológico', bg: 'bg-cyan-600', text: 'text-cyan-600', border: 'border-cyan-500' }
 ];
 
+const PRESET_MODELS = [
+  { nombre: 'Oficios Jefatura', prefijo: 'OF-JEF', color: 'blue', descripcion: 'Numerario correlativo para oficios de Jefatura' },
+  { nombre: 'Oficios Vicedirección', prefijo: 'OF-VIC', color: 'indigo', descripcion: 'Oficios y trámites de Segunda Jefatura' },
+  { nombre: 'Memorándums', prefijo: 'MEMO', color: 'emerald', descripcion: 'Memorándums de servicio y afectación' },
+  { nombre: 'Circulares', prefijo: 'CIRC', color: 'amber', descripcion: 'Circulares y radiomensajes generales' },
+  { nombre: 'Dictámenes Técnicos Forenses', prefijo: 'DICT-TEC', color: 'purple', descripcion: 'Dictámenes e informes periciales forenses' }
+];
+
 export const SeriesManagerModal: React.FC<SeriesManagerModalProps> = ({
   isOpen,
   onClose,
   series,
   delegacionId,
+  initialEditSerie,
+  initialOpenCreate = false,
   onRefresh,
   onSelectSerie
 }) => {
+  const perms = usePermissions();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingSerie, setEditingSerie] = useState<NumerarioSerie | null>(null);
 
@@ -51,9 +65,23 @@ export const SeriesManagerModal: React.FC<SeriesManagerModalProps> = ({
   const [descripcion, setDescripcion] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  // Sync initial props
+  React.useEffect(() => {
+    if (isOpen) {
+      if (initialEditSerie) {
+        openEdit(initialEditSerie);
+      } else if (initialOpenCreate) {
+        openCreate();
+      } else {
+        setIsFormOpen(false);
+      }
+    }
+  }, [isOpen, initialEditSerie, initialOpenCreate]);
+
   if (!isOpen) return null;
 
   const openCreate = () => {
+    if (!perms.canCreate) return;
     setEditingSerie(null);
     setNombre('');
     setPrefijo('');
@@ -66,6 +94,7 @@ export const SeriesManagerModal: React.FC<SeriesManagerModalProps> = ({
   };
 
   const openEdit = (s: NumerarioSerie) => {
+    if (!perms.canEdit) return;
     setEditingSerie(s);
     setNombre(s.nombre);
     setPrefijo(s.prefijo);
@@ -79,6 +108,7 @@ export const SeriesManagerModal: React.FC<SeriesManagerModalProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (editingSerie ? !perms.canEdit : !perms.canCreate) return;
     setError(null);
 
     if (!nombre.trim() || !prefijo.trim()) {
@@ -119,6 +149,7 @@ export const SeriesManagerModal: React.FC<SeriesManagerModalProps> = ({
   };
 
   const handleDelete = async (id: number, serieName: string) => {
+    if (!perms.canDelete) return;
     if (series.length <= 1) {
       alert('Debe mantenerse al menos una serie de numerario en el sistema.');
       return;
@@ -154,7 +185,7 @@ export const SeriesManagerModal: React.FC<SeriesManagerModalProps> = ({
         </div>
 
         {/* Action button to open create form */}
-        {!isFormOpen && (
+        {!isFormOpen && perms.canCreate && (
           <div className="flex justify-end">
             <button
               onClick={openCreate}
@@ -186,6 +217,35 @@ export const SeriesManagerModal: React.FC<SeriesManagerModalProps> = ({
               <div className="p-2.5 bg-red-50 dark:bg-red-950/40 text-red-600 text-xs rounded-xl flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
+              </div>
+            )}
+
+            {/* Quick Model Presets */}
+            {!editingSerie && (
+              <div className="space-y-1.5 pb-2 border-b border-slate-200 dark:border-slate-700">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Modelos de Tipos de Folios (clic para autocompletar):
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESET_MODELS.map((p) => (
+                    <button
+                      key={p.prefijo}
+                      type="button"
+                      onClick={() => {
+                        setNombre(p.nombre);
+                        setPrefijo(p.prefijo);
+                        setColor(p.color);
+                        setDescripcion(p.descripcion);
+                      }}
+                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-blue-500 text-slate-700 dark:text-slate-300 transition-colors flex items-center gap-1.5"
+                    >
+                      <span>{p.nombre}</span>
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 font-mono text-blue-600 dark:text-blue-400">
+                        {p.prefijo}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -343,20 +403,24 @@ export const SeriesManagerModal: React.FC<SeriesManagerModalProps> = ({
                   >
                     Ver Cuadrícula
                   </button>
-                  <button
-                    onClick={() => openEdit(s)}
-                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                    title="Editar serie"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => s.id && handleDelete(s.id, s.nombre)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
-                    title="Eliminar serie"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {perms.canEdit && (
+                    <button
+                      onClick={() => openEdit(s)}
+                      className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                      title="Editar serie"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  {perms.canDelete && (
+                    <button
+                      onClick={() => s.id && handleDelete(s.id, s.nombre)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                      title="Eliminar serie"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             );

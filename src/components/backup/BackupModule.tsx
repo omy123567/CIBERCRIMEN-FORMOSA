@@ -32,8 +32,9 @@ import {
   exportIndividualJson
 } from '../../utils/sgpBackupZip';
 import { saveAs } from 'file-saver';
-import { sgpManager } from '../../db/dexieDb';
+import { sgpManager, db, getAuditHeaders } from '../../db/dexieDb';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { usePermissions } from '../../context/PermissionsContext';
 import {
   PeriodType,
   calculatePeriodRange,
@@ -52,7 +53,7 @@ interface BackupModuleProps {
   onRefresh: () => void;
 }
 
-type TabType = 'general' | 'vaciar_todo' | 'eliminar_periodo' | 'restaurar_periodo' | 'exportar_periodo';
+type TabType = 'general' | 'vaciar_todo' | 'eliminar_periodo' | 'restaurar_periodo' | 'exportar_periodo' | 'gestion_tablas';
 
 interface ClearAllOptions {
   clearExpedientes: boolean;
@@ -64,6 +65,10 @@ interface ClearAllOptions {
   clearReparaciones: boolean;
   clearRecargos: boolean;
   clearCharlas: boolean;
+  clearSeriesNumerario: boolean;
+  clearDynamicCatalogs: boolean;
+  clearDynamicFields: boolean;
+  clearNavModulesConfig: boolean;
 }
 
 const DEFAULT_CLEAR_OPTIONS: ClearAllOptions = {
@@ -75,10 +80,18 @@ const DEFAULT_CLEAR_OPTIONS: ClearAllOptions = {
   clearMoviles: true,
   clearReparaciones: true,
   clearRecargos: true,
-  clearCharlas: true
+  clearCharlas: true,
+  clearSeriesNumerario: false,
+  clearDynamicCatalogs: false,
+  clearDynamicFields: false,
+  clearNavModulesConfig: false
 };
 
 export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefresh }) => {
+  const perms = usePermissions();
+  const canImport = perms.canCreate || perms.canEdit;
+  const canDestructiveReset = perms.canResetCounters || perms.canDelete;
+
   const [activeTab, setActiveTab] = useState<TabType>('general');
   const [isExportingZip, setIsExportingZip] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -92,6 +105,8 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const fileInputZipRef = useRef<HTMLInputElement>(null);
   const fileInputJsonRef = useRef<HTMLInputElement>(null);
   const fileInputRestorePeriodRef = useRef<HTMLInputElement>(null);
+  const singleTableInputRef = useRef<HTMLInputElement>(null);
+  const [singleTableImportTarget, setSingleTableImportTarget] = useState<string | null>(null);
 
   // -------------------------------------------------------------
   // State for "Vaciar Todo (Iniciar Sistema Limpio)"
@@ -126,6 +141,8 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
     if (clearOptions.clearReparaciones) count += (backupData.reparaciones?.length || 0);
     if (clearOptions.clearRecargos) count += (backupData.recargos?.length || 0);
     if (clearOptions.clearCharlas) count += (backupData.charlas?.length || 0);
+    if (clearOptions.clearDynamicCatalogs) count += (backupData.dynamicCatalogs?.length || 0);
+    if (clearOptions.clearDynamicFields) count += (backupData.dynamicFields?.length || 0);
     return count;
   }, [backupData, clearOptions]);
 
@@ -210,6 +227,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   // Handlers for General Tab
   // -------------------------------------------------------------
   const handleExportZip = async () => {
+    if (!perms.canExport) return;
     setIsExportingZip(true);
     try {
       await exportSgpCopiaCompletaZip();
@@ -222,6 +240,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   };
 
   const handleExportSingleJson = () => {
+    if (!perms.canExport) return;
     const jsonStr = JSON.stringify(backupData, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const filename = `sisdic_backup_completo_${new Date().toISOString().slice(0, 10)}.json`;
@@ -230,6 +249,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   };
 
   const handleFileZipUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canImport) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -245,6 +265,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   };
 
   const handleFileJsonUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canImport) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -274,6 +295,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   };
 
   const handleFactoryReset = async () => {
+    if (!canDestructiveReset) return;
     await sgpManager.seedInitial();
     onRefresh();
     setStatusMessage({
@@ -299,11 +321,16 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
       clearMoviles: val,
       clearReparaciones: val,
       clearRecargos: val,
-      clearCharlas: val
+      clearCharlas: val,
+      clearSeriesNumerario: val,
+      clearDynamicCatalogs: val,
+      clearDynamicFields: val,
+      clearNavModulesConfig: val
     });
   };
 
   const handleInitiateClearAll = () => {
+    if (!canDestructiveReset) return;
     if (selectedClearCount === 0) {
       alert('No hay módulos seleccionados o los registros ya están en 0.');
       return;
@@ -313,6 +340,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   };
 
   const handleExecuteClearAll = async () => {
+    if (!canDestructiveReset) return;
     if (clearAllConfirmText.trim().toUpperCase() !== 'ELIMINAR TODO') {
       alert('Debe escribir exactamente "ELIMINAR TODO" para confirmar el vaciado del sistema.');
       return;
@@ -370,6 +398,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   };
 
   const handleInitiatePurge = () => {
+    if (!canDestructiveReset) return;
     if (purgeCounts.total === 0) {
       alert('No hay registros coincidentes para el período y módulos seleccionados.');
       return;
@@ -379,6 +408,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   };
 
   const handleExecutePurge = async () => {
+    if (!canDestructiveReset) return;
     if (purgeConfirmationText.trim().toUpperCase() !== 'CONFIRMAR') {
       alert('Debe escribir exactamente "CONFIRMAR" para ejecutar la depuración.');
       return;
@@ -419,6 +449,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   // Handlers for "Restaurar por Período"
   // -------------------------------------------------------------
   const handleFileForPeriodRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canImport) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -440,6 +471,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   };
 
   const handleExecuteRestorePeriod = async () => {
+    if (!canImport) return;
     if (!restoreFileParsed) {
       alert('Debe cargar primero un archivo de respaldo JSON.');
       return;
@@ -488,6 +520,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   // Handlers for "Exportar por Período"
   // -------------------------------------------------------------
   const handleExecuteExportPeriod = () => {
+    if (!perms.canExport) return;
     if (exportCounts.total === 0) {
       alert('No hay registros coincidentes para el período seleccionado.');
       return;
@@ -535,52 +568,72 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
         </button>
 
         {/* Tab Vaciar Todo */}
-        <button
-          onClick={() => setActiveTab('vaciar_todo')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'vaciar_todo'
-              ? 'bg-red-600 text-white shadow-xs shadow-red-500/30 ring-2 ring-red-500/20'
-              : 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40'
-          }`}
-        >
-          <Trash2 className="w-4 h-4 text-red-500" />
-          <span>Vaciar Todo (Iniciar Sistema Limpio)</span>
-        </button>
+        {canDestructiveReset && (
+          <button
+            onClick={() => setActiveTab('vaciar_todo')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'vaciar_todo'
+                ? 'bg-red-600 text-white shadow-xs shadow-red-500/30 ring-2 ring-red-500/20'
+                : 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40'
+            }`}
+          >
+            <Trash2 className="w-4 h-4 text-red-500" />
+            <span>Vaciar Todo (Iniciar Sistema Limpio)</span>
+          </button>
+        )}
+
+        {canDestructiveReset && (
+          <button
+            onClick={() => setActiveTab('eliminar_periodo')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'eliminar_periodo'
+                ? 'bg-rose-600 text-white shadow-xs shadow-rose-500/30'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-700 dark:text-rose-400'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Eliminar por Período</span>
+          </button>
+        )}
+
+        {canImport && (
+          <button
+            onClick={() => setActiveTab('restaurar_periodo')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'restaurar_periodo'
+                ? 'bg-emerald-600 text-white shadow-xs shadow-emerald-500/30'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
+            }`}
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Restaurar Datos por Período</span>
+          </button>
+        )}
+
+        {perms.canExport && (
+          <button
+            onClick={() => setActiveTab('exportar_periodo')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'exportar_periodo'
+                ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-500/30'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Download className="w-4 h-4" />
+            <span>Exportar Respaldo Parcial</span>
+          </button>
+        )}
 
         <button
-          onClick={() => setActiveTab('eliminar_periodo')}
+          onClick={() => setActiveTab('gestion_tablas')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'eliminar_periodo'
-              ? 'bg-rose-600 text-white shadow-xs shadow-rose-500/30'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-700 dark:text-rose-400'
+            activeTab === 'gestion_tablas'
+              ? 'bg-purple-600 text-white shadow-xs shadow-purple-500/30'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-purple-700 dark:text-purple-400'
           }`}
         >
-          <Calendar className="w-4 h-4" />
-          <span>Eliminar por Período</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('restaurar_periodo')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'restaurar_periodo'
-              ? 'bg-emerald-600 text-white shadow-xs shadow-emerald-500/30'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400'
-          }`}
-        >
-          <RefreshCw className="w-4 h-4" />
-          <span>Restaurar Datos por Período</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('exportar_periodo')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'exportar_periodo'
-              ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-500/30'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Download className="w-4 h-4" />
-          <span>Exportar Respaldo Parcial</span>
+          <Layers className="w-4 h-4" />
+          <span>Gestión Granular de Tablas</span>
         </button>
       </div>
 
@@ -609,7 +662,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
       {/* ------------------------------------------------------------- */}
       {/* TAB: VACIAR TODO (INICIAR SISTEMA LIMPIO) */}
       {/* ------------------------------------------------------------- */}
-      {activeTab === 'vaciar_todo' && (
+      {activeTab === 'vaciar_todo' && canDestructiveReset && (
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border-2 border-red-200 dark:border-red-900/50 shadow-xl space-y-6">
             {/* Header Box */}
@@ -644,26 +697,28 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                 Antes de vaciar el sistema, le recomendamos descargar una copia de seguridad completa con todos los datos actuales. Podrá restaurarla en cualquier momento si lo necesita.
               </p>
 
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={handleExportSingleJson}
-                  className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 text-xs font-bold rounded-xl transition-all shadow-xs"
-                >
-                  <Download className="w-4 h-4 text-emerald-600" />
-                  <span>Descargar Copia Completa (JSON)</span>
-                </button>
+              {perms.canExport && (
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleExportSingleJson}
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 text-xs font-bold rounded-xl transition-all shadow-xs"
+                  >
+                    <Download className="w-4 h-4 text-emerald-600" />
+                    <span>Descargar Copia Completa (JSON)</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={handleExportZip}
-                  disabled={isExportingZip}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-50"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>{isExportingZip ? 'Generando ZIP...' : 'Descargar ZIP con Adjuntos'}</span>
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleExportZip}
+                    disabled={isExportingZip}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>{isExportingZip ? 'Generando ZIP...' : 'Descargar ZIP con Adjuntos'}</span>
+                  </button>
+                </div>
+              )}
 
               <div className="pt-2 border-t border-blue-200/60 dark:border-blue-900/40">
                 <label className="flex items-center gap-2.5 cursor-pointer select-none">
@@ -713,7 +768,11 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                   { key: 'clearRecargos' as const, label: 'Recargos de Servicio', count: backupData.recargos?.length || 0, desc: 'Planillas de recargos operativos' },
                   { key: 'clearMoviles' as const, label: 'Parque Automotor (Móviles)', count: backupData.moviles?.length || 0, desc: 'Móviles y patrulleros' },
                   { key: 'clearReparaciones' as const, label: 'Reparaciones Mecánicas', count: backupData.reparaciones?.length || 0, desc: 'Historial de taller y services' },
-                  { key: 'clearCharlas' as const, label: 'Charlas & Capacitaciones', count: backupData.charlas?.length || 0, desc: 'Eventos y charlas preventivas' }
+                  { key: 'clearCharlas' as const, label: 'Charlas & Capacitaciones', count: backupData.charlas?.length || 0, desc: 'Eventos y charlas preventivas' },
+                  { key: 'clearSeriesNumerario' as const, label: 'Series de Numerario (Tipos de Folios)', count: 5, desc: 'Reiniciar series creadas a valores por defecto' },
+                  { key: 'clearDynamicCatalogs' as const, label: 'Catálogos Dinámicos', count: backupData.dynamicCatalogs?.length || 0, desc: 'Requerimientos, organismos y juzgados' },
+                  { key: 'clearDynamicFields' as const, label: 'Campos Dinámicos Personalizados', count: backupData.dynamicFields?.length || 0, desc: 'Metadatos agregados por usuario' },
+                  { key: 'clearNavModulesConfig' as const, label: 'Estructura de Módulos & Carpetas', count: 1, desc: 'Restablecer orden y carpetas de navegación' }
                 ].map((item) => {
                   const isChecked = clearOptions[item.key];
                   return (
@@ -850,32 +909,34 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
       {activeTab === 'general' && (
         <div className="space-y-6">
           {/* Banner Directo: Vaciar datos para cargar los propios */}
-          <div className="p-5 bg-gradient-to-r from-red-950/30 via-slate-900 to-slate-900 rounded-2xl border-2 border-red-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
-            <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
-                <Trash2 className="w-5 h-5" />
+          {canDestructiveReset && (
+            <div className="p-5 bg-gradient-to-r from-red-950/30 via-slate-900 to-slate-900 rounded-2xl border-2 border-red-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <span>¿Desea vaciar todos los datos precargados para ingresar los suyos?</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 font-bold">
+                      {totalOperationalRecords} registros
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Elimine los expedientes, legajos y numerario de prueba con resguardo preventivo automático antes de vaciar.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-sm font-black text-white flex items-center gap-2">
-                  <span>¿Desea vaciar todos los datos precargados para ingresar los suyos?</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 font-bold">
-                    {totalOperationalRecords} registros
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Elimine los expedientes, legajos y numerario de prueba con resguardo preventivo automático antes de vaciar.
-                </p>
-              </div>
-            </div>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('vaciar_todo')}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 shrink-0"
-            >
-              Vaciar Todo y Empezar Limpio
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('vaciar_todo')}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 shrink-0"
+              >
+                Vaciar Todo y Empezar Limpio
+              </button>
+            </div>
+          )}
 
           {/* Database Entity Status Grid */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
@@ -934,30 +995,36 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
               </p>
 
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button
-                  onClick={handleExportZip}
-                  disabled={isExportingZip}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-all active:scale-95 disabled:opacity-50"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>{isExportingZip ? 'Comprimiendo ZIP...' : 'Exportar SGP_CopiaCompleta.zip'}</span>
-                </button>
+                {perms.canExport && (
+                  <button
+                    onClick={handleExportZip}
+                    disabled={isExportingZip}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>{isExportingZip ? 'Comprimiendo ZIP...' : 'Exportar SGP_CopiaCompleta.zip'}</span>
+                  </button>
+                )}
 
-                <input
-                  type="file"
-                  accept=".zip"
-                  ref={fileInputZipRef}
-                  onChange={handleFileZipUpload}
-                  className="hidden"
-                />
-                <button
-                  onClick={() => fileInputZipRef.current?.click()}
-                  disabled={isImporting}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl transition-all active:scale-95 disabled:opacity-50"
-                >
-                  <Upload className="w-4 h-4 text-blue-600" />
-                  <span>{isImporting ? 'Extrayendo...' : 'Importar Copia ZIP'}</span>
-                </button>
+                {canImport && (
+                  <>
+                    <input
+                      type="file"
+                      accept=".zip"
+                      ref={fileInputZipRef}
+                      onChange={handleFileZipUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => fileInputZipRef.current?.click()}
+                      disabled={isImporting}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      <Upload className="w-4 h-4 text-blue-600" />
+                      <span>{isImporting ? 'Extrayendo...' : 'Importar Copia ZIP'}</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -980,80 +1047,90 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
               </p>
 
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button
-                  onClick={handleExportSingleJson}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 rounded-xl shadow-xs transition-all active:scale-95"
-                >
-                  <Download className="w-4 h-4 text-emerald-600" />
-                  <span>Exportar backup_data.json</span>
-                </button>
+                {perms.canExport && (
+                  <button
+                    onClick={handleExportSingleJson}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 rounded-xl shadow-xs transition-all active:scale-95"
+                  >
+                    <Download className="w-4 h-4 text-emerald-600" />
+                    <span>Exportar backup_data.json</span>
+                  </button>
+                )}
 
-                <input
-                  type="file"
-                  accept=".json"
-                  ref={fileInputJsonRef}
-                  onChange={handleFileJsonUpload}
-                  className="hidden"
-                />
-                <button
-                  onClick={() => fileInputJsonRef.current?.click()}
-                  disabled={isImporting}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl transition-all active:scale-95 disabled:opacity-50"
-                >
-                  <Upload className="w-4 h-4 text-emerald-600" />
-                  <span>Importar backup_data.json</span>
-                </button>
+                {canImport && (
+                  <>
+                    <input
+                      type="file"
+                      accept=".json"
+                      ref={fileInputJsonRef}
+                      onChange={handleFileJsonUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => fileInputJsonRef.current?.click()}
+                      disabled={isImporting}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      <Upload className="w-4 h-4 text-emerald-600" />
+                      <span>Importar backup_data.json</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
 
           {/* Individual Exports Section */}
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-xs">
-              Exportaciones Individuales por Módulo
-            </h3>
+          {perms.canExport && (
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider text-xs">
+                Exportaciones Individuales por Módulo
+              </h3>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label: 'Personal (JSON)', fn: () => exportIndividualJson('Personal', backupData.personal) },
-                { label: 'Expedientes (JSON)', fn: () => exportIndividualJson('Expedientes', backupData.expedientes) },
-                { label: 'Móviles (JSON)', fn: () => exportIndividualJson('Moviles', backupData.moviles) },
-                { label: 'Reparaciones (JSON)', fn: () => exportIndividualJson('Reparaciones', backupData.reparaciones) },
-                { label: 'Recargos (JSON)', fn: () => exportIndividualJson('Recargos', backupData.recargos) },
-                { label: 'Charlas (JSON)', fn: () => exportIndividualJson('Charlas', backupData.charlas) },
-                { label: 'Licencias (JSON)', fn: () => exportIndividualJson('Licencias', backupData.licencias) },
-                { label: 'Personas (JSON)', fn: () => exportIndividualJson('Personas', backupData.personas || []) }
-              ].map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={item.fn}
-                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
-                >
-                  <span>{item.label}</span>
-                  <Download className="w-3.5 h-3.5 text-blue-600" />
-                </button>
-              ))}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Personal (JSON)', fn: () => exportIndividualJson('Personal', backupData.personal) },
+                  { label: 'Expedientes (JSON)', fn: () => exportIndividualJson('Expedientes', backupData.expedientes) },
+                  { label: 'Móviles (JSON)', fn: () => exportIndividualJson('Moviles', backupData.moviles) },
+                  { label: 'Reparaciones (JSON)', fn: () => exportIndividualJson('Reparaciones', backupData.reparaciones) },
+                  { label: 'Recargos (JSON)', fn: () => exportIndividualJson('Recargos', backupData.recargos) },
+                  { label: 'Charlas (JSON)', fn: () => exportIndividualJson('Charlas', backupData.charlas) },
+                  { label: 'Licencias (JSON)', fn: () => exportIndividualJson('Licencias', backupData.licencias) },
+                  { label: 'Personas (JSON)', fn: () => exportIndividualJson('Personas', backupData.personas || []) }
+                ].map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={item.fn}
+                    className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+                  >
+                    <span>{item.label}</span>
+                    <Download className="w-3.5 h-3.5 text-blue-600" />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Dangerous Zone / Factory Reset */}
-          <div className="p-5 bg-slate-100 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">
-                Restablecer a Valores Iniciales de Fábrica (Datos Demo)
-              </h4>
-              <p className="text-xs text-slate-500">
-                Reinicia la base de datos con los datos institucionales de prueba de Laguna Blanca.
-              </p>
-            </div>
+          {canDestructiveReset && (
+            <div className="p-5 bg-slate-100 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">
+                  Restablecer a Valores Iniciales de Fábrica (Datos Demo)
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Reinicia la base de datos con los datos institucionales de prueba de Laguna Blanca.
+                </p>
+              </div>
 
-            <button
-              onClick={() => setIsConfirmResetOpen(true)}
-              className="px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl border border-slate-300 dark:border-slate-600 transition-colors shrink-0"
-            >
-              Restablecer Valores Demo
-            </button>
-          </div>
+              <button
+                onClick={() => setIsConfirmResetOpen(true)}
+                className="px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl border border-slate-300 dark:border-slate-600 transition-colors shrink-0"
+              >
+                Restablecer Valores Demo
+              </button>
+            </div>
+          )}
 
           <ConfirmDialog
             isOpen={isConfirmResetOpen}
@@ -1070,7 +1147,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
       {/* ------------------------------------------------------------- */}
       {/* TAB 2: ELIMINAR DATOS POR PERÍODO */}
       {/* ------------------------------------------------------------- */}
-      {activeTab === 'eliminar_periodo' && (
+      {activeTab === 'eliminar_periodo' && canDestructiveReset && (
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-rose-200 dark:border-rose-900/40 shadow-xs space-y-6">
             <div className="flex items-center gap-3 border-b border-rose-100 dark:border-rose-900/30 pb-4">
@@ -1313,7 +1390,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
       {/* ------------------------------------------------------------- */}
       {/* TAB 3: RESTAURAR DATOS POR PERÍODO */}
       {/* ------------------------------------------------------------- */}
-      {activeTab === 'restaurar_periodo' && (
+      {activeTab === 'restaurar_periodo' && canImport && (
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-emerald-200 dark:border-emerald-900/40 shadow-xs space-y-6">
             <div className="flex items-center gap-3 border-b border-emerald-100 dark:border-emerald-900/30 pb-4">
@@ -1511,7 +1588,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
       {/* ------------------------------------------------------------- */}
       {/* TAB 4: EXPORTAR RESPALDO PARCIAL */}
       {/* ------------------------------------------------------------- */}
-      {activeTab === 'exportar_periodo' && (
+      {activeTab === 'exportar_periodo' && perms.canExport && (
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-indigo-200 dark:border-indigo-900/40 shadow-xs space-y-6">
             <div className="flex items-center gap-3 border-b border-indigo-100 dark:border-indigo-900/30 pb-4">
@@ -1602,6 +1679,259 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                 <span>Descargar Copia Liviana ({exportCounts.total})</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 6: GESTIÓN GRANULAR DE TABLAS Y DATOS */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'gestion_tablas' && (
+        <div className="space-y-6">
+          <input
+            type="file"
+            accept=".json"
+            ref={singleTableInputRef}
+            onChange={async (e) => {
+              if (!canImport) return;
+              const file = e.target.files?.[0];
+              if (!file || !singleTableImportTarget) return;
+              try {
+                const text = await file.text();
+                const parsed = JSON.parse(text);
+                const items = Array.isArray(parsed) ? parsed : (parsed.data || parsed.items || []);
+                if (!Array.isArray(items)) {
+                  throw new Error('El archivo debe contener un arreglo JSON con los registros.');
+                }
+                const table = (db as any)[singleTableImportTarget];
+                if (!table) throw new Error(`Tabla ${singleTableImportTarget} no reconocida.`);
+                await table.bulkPut(items);
+                sgpManager.notify();
+                onRefresh();
+                setStatusMessage({
+                  success: true,
+                  message: `Se importaron ${items.length} registros exitosamente en la tabla "${singleTableImportTarget}".`
+                });
+              } catch (err: any) {
+                setStatusMessage({
+                  success: false,
+                  message: `Error al importar tabla: ${err.message}`
+                });
+              } finally {
+                setSingleTableImportTarget(null);
+                if (singleTableInputRef.current) singleTableInputRef.current.value = '';
+              }
+            }}
+            className="hidden"
+          />
+
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-2">
+            <div className="flex items-center gap-2 text-purple-600">
+              <Layers className="w-5 h-5" />
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                Gestión y Control Granular por Tabla de Base de Datos
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Administración independiente de cada tabla: exporte una copia en JSON, importe registros nuevos desde un archivo, o depure/vacíe una tabla específica de manera aislada sin tocar el resto de la base de datos.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[
+              {
+                id: 'expedientes',
+                name: 'Expedientes & Peritajes',
+                desc: 'Causas judiciales, carátulas y requerimientos periciales',
+                count: backupData.expedientes?.length || 0,
+                color: 'blue',
+                data: backupData.expedientes
+              },
+              {
+                id: 'foliosNumerario',
+                name: 'Numerario & Folios',
+                desc: 'Folios y oficios asignados en las series oficiales',
+                count: backupData.foliosNumerario?.length || 0,
+                color: 'amber',
+                data: backupData.foliosNumerario || []
+              },
+              {
+                id: 'seriesNumerario',
+                name: 'Series de Numerario',
+                desc: 'Tipos de trámites (OF-JEF, OF-VIC, MEMO, CIRC, etc.)',
+                count: 5,
+                color: 'purple',
+                data: []
+              },
+              {
+                id: 'personal',
+                name: 'Personal & Legajos',
+                desc: 'Efectivos policiales, jerarquías y legajos de la dotación',
+                count: backupData.personal?.length || 0,
+                color: 'emerald',
+                data: backupData.personal
+              },
+              {
+                id: 'personas',
+                name: 'Personas (Evidencias)',
+                desc: 'Personas imputadas/investigadas y dispositivos peritados',
+                count: backupData.personas?.length || 0,
+                color: 'sky',
+                data: backupData.personas || []
+              },
+              {
+                id: 'licencias',
+                name: 'Licencias & Cuatrienios',
+                desc: 'Registros de licencias ordinarias y especiales del personal',
+                count: backupData.licencias?.length || 0,
+                color: 'indigo',
+                data: backupData.licencias
+              },
+              {
+                id: 'moviles',
+                name: 'Parque Automotor (Móviles)',
+                desc: 'Patrulleros, camionetas y vehículos asignados',
+                count: backupData.moviles?.length || 0,
+                color: 'teal',
+                data: backupData.moviles
+              },
+              {
+                id: 'reparaciones',
+                name: 'Reparaciones Mecánicas',
+                desc: 'Historial de services, costos y talleres mecánicos',
+                count: backupData.reparaciones?.length || 0,
+                color: 'cyan',
+                data: backupData.reparaciones
+              },
+              {
+                id: 'recargos',
+                name: 'Recargos de Servicio',
+                desc: 'Planillas horarias y afectaciones de servicio extraordinario',
+                count: backupData.recargos?.length || 0,
+                color: 'rose',
+                data: backupData.recargos
+              },
+              {
+                id: 'charlas',
+                name: 'Charlas de Prevención',
+                desc: 'Jornadas comunitarias, instituciones y asistentes',
+                count: backupData.charlas?.length || 0,
+                color: 'pink',
+                data: backupData.charlas
+              },
+              {
+                id: 'dynamicCatalogs',
+                name: 'Catálogos Dinámicos',
+                desc: 'Tipos de requerimiento, juzgados, comisarías y listas',
+                count: backupData.dynamicCatalogs?.length || 0,
+                color: 'violet',
+                data: backupData.dynamicCatalogs
+              },
+              {
+                id: 'dynamicFields',
+                name: 'Campos Dinámicos',
+                desc: 'Definiciones de campos personalizados por entidad',
+                count: backupData.dynamicFields?.length || 0,
+                color: 'fuchsia',
+                data: backupData.dynamicFields
+              }
+            ].map((tbl) => (
+              <div
+                key={tbl.id}
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4 flex flex-col justify-between hover:border-purple-400 dark:hover:border-purple-700 transition-colors"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                      {tbl.name}
+                    </h4>
+                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-900">
+                      {tbl.count} reg.
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    {tbl.desc}
+                  </p>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                  {perms.canExport && (
+                    <button
+                      onClick={() => {
+                        exportIndividualJson(tbl.name, tbl.data);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors"
+                      title="Exportar archivo JSON de esta tabla"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Exportar</span>
+                    </button>
+                  )}
+
+                  {canImport && (
+                    <button
+                      onClick={() => {
+                        setSingleTableImportTarget(tbl.id);
+                        singleTableInputRef.current?.click();
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 rounded-xl transition-colors border border-purple-200 dark:border-purple-900/60"
+                      title="Importar registros JSON a esta tabla"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Importar</span>
+                    </button>
+                  )}
+
+                  {canDestructiveReset && (
+                    <button
+                      onClick={async () => {
+                        if (!canDestructiveReset) return;
+                        if (!window.confirm(`¿Está seguro de que desea vaciar la tabla "${tbl.name}"? Los datos eliminados no se podrán recuperar a menos que tenga un respaldo previo.`)) {
+                          return;
+                        }
+                        try {
+                          const table = (db as any)[tbl.id];
+                          if (table) await table.clear();
+                          await fetch('/api/maintenance/clear-all', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
+                            body: JSON.stringify({
+                              clearExpedientes: tbl.id === 'expedientes',
+                              clearPersonal: tbl.id === 'personal',
+                              clearFolios: tbl.id === 'foliosNumerario',
+                              clearPersonas: tbl.id === 'personas',
+                              clearMoviles: tbl.id === 'moviles',
+                              clearReparaciones: tbl.id === 'reparaciones',
+                              clearRecargos: tbl.id === 'recargos',
+                              clearCharlas: tbl.id === 'charlas',
+                              clearLicencias: tbl.id === 'licencias',
+                              clearSeriesNumerario: tbl.id === 'seriesNumerario',
+                              clearDynamicCatalogs: tbl.id === 'dynamicCatalogs',
+                              clearDynamicFields: tbl.id === 'dynamicFields'
+                            })
+                          });
+                          sgpManager.notify();
+                          onRefresh();
+                          setStatusMessage({
+                            success: true,
+                            message: `Tabla "${tbl.name}" vaciada con éxito.`
+                          });
+                        } catch (err: any) {
+                          setStatusMessage({
+                            success: false,
+                            message: `Error al vaciar tabla: ${err.message}`
+                          });
+                        }
+                      }}
+                      className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors"
+                      title="Vaciar únicamente esta tabla"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

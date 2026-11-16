@@ -16,7 +16,11 @@ import {
   Activity,
   Printer,
   ChevronRight,
-  Shield
+  Shield,
+  GripVertical,
+  BellRing,
+  MapPin,
+  School
 } from 'lucide-react';
 import {
   Expediente,
@@ -35,12 +39,15 @@ import {
   SgpOrientation
 } from '../../utils/sgpPdfGenerator';
 import { PdfPreviewModal } from '../common/PdfPreviewModal';
+import { usePermissions } from '../../context/PermissionsContext';
+import { getUpcomingCharlasReminders } from '../../utils/charlaReminders';
 
 interface ExecutiveDashboardProps {
   expedientes: Expediente[];
   personalList: Personal[];
   moviles: Movil[];
   reparaciones: Reparacion[];
+  charlas?: Charla[];
   catalogs: DynamicCatalog[];
   institutionalConfig: InstitutionalConfig;
   selectedYear: string;
@@ -55,19 +62,80 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   personalList,
   moviles,
   reparaciones,
+  charlas: charlasProp,
   catalogs,
   institutionalConfig,
   selectedYear,
   onSelectYear,
   onNavigate
 }) => {
+  const perms = usePermissions();
   const [period, setPeriod] = useState<PeriodFilter>('month');
-  const [charlas, setCharlas] = useState<Charla[]>([]);
+  const [localCharlas, setLocalCharlas] = useState<Charla[]>([]);
   const [pdfPreviewBlob, setPdfPreviewBlob] = useState<{ blob: Blob; title: string; filename: string } | null>(null);
 
+  // Reorderable KPI Cards
+  const [kpiCardOrder, setKpiCardOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sispol_dashboard_kpi_order');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return ['escalamientos', 'resguardo', 'descarga', 'ppi', 'falta_oficio'];
+  });
+  const [draggedKpi, setDraggedKpi] = useState<string | null>(null);
+  const [dragOverKpi, setDragOverKpi] = useState<string | null>(null);
+
+  const handleKpiDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedKpi(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleKpiDragOver = (e: React.DragEvent, id: string) => {
+    if (!draggedKpi || draggedKpi === id) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverKpi(id);
+  };
+
+  const handleKpiDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!draggedKpi || draggedKpi === targetId) {
+      setDraggedKpi(null);
+      setDragOverKpi(null);
+      return;
+    }
+    const current = [...kpiCardOrder];
+    const srcIdx = current.indexOf(draggedKpi);
+    const tgtIdx = current.indexOf(targetId);
+    if (srcIdx !== -1 && tgtIdx !== -1) {
+      const [removed] = current.splice(srcIdx, 1);
+      current.splice(tgtIdx, 0, removed);
+      setKpiCardOrder(current);
+      localStorage.setItem('sispol_dashboard_kpi_order', JSON.stringify(current));
+    }
+    setDraggedKpi(null);
+    setDragOverKpi(null);
+  };
+
+  const handleKpiDragEnd = () => {
+    setDraggedKpi(null);
+    setDragOverKpi(null);
+  };
+
   useEffect(() => {
-    db.charlas.toArray().then((c) => setCharlas(c || []));
-  }, []);
+    if (!charlasProp) {
+      db.charlas.toArray().then((c) => setLocalCharlas(c || []));
+    }
+  }, [charlasProp]);
+
+  const charlas = useMemo(() => charlasProp ?? localCharlas, [charlasProp, localCharlas]);
+
+  // Upcoming Charlas Reminders (today and next 14 days, regardless of historical period filter)
+  const upcomingCharlas = useMemo(
+    () => getUpcomingCharlasReminders(charlas, 14),
+    [charlas]
+  );
 
   // Available Years
   const availableYears = useMemo(() => {
@@ -137,6 +205,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
+      if (period === 'today') {
+        return (
+          chDate.getDate() === today.getDate() &&
+          chDate.getMonth() === today.getMonth() &&
+          chDate.getFullYear() === today.getFullYear()
+        );
+      }
       if (period === 'week') {
         const diffDays = (today.getTime() - chDate.getTime()) / (1000 * 3600 * 24);
         return diffDays >= 0 && diffDays <= 7;
@@ -402,6 +477,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   }, [filteredExpedientes]);
 
   const handlePrint = () => {
+    if (!perms.canExport) return;
     window.print();
   };
 
@@ -438,6 +514,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   };
 
   const handleExportPDF = () => {
+    if (!perms.canExport) return;
     const doc = buildDashboardDoc(dashboardPdfFormat.paperSize, dashboardPdfFormat.orientation);
     const blob = doc.output('blob');
     setPdfPreviewBlob({
@@ -512,25 +589,117 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
 
           {/* Export buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors shadow-xs"
-            >
-              <Printer className="w-4 h-4" />
-              <span>Imprimir</span>
-            </button>
+          {perms.canExport && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors shadow-xs"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Imprimir</span>
+              </button>
 
-            <button
-              onClick={handleExportPDF}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-md active:scale-95"
-            >
-              <Download className="w-4 h-4" />
-              <span>Exportar PDF</span>
-            </button>
-          </div>
+              <button
+                onClick={handleExportPDF}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-md active:scale-95"
+              >
+                <Download className="w-4 h-4" />
+                <span>Exportar PDF</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* =========================================================================
+          EVENT REMINDERS WIDGET: CHARLAS Y PREVENCIÓN COMUNITARIA
+         ========================================================================= */}
+      {upcomingCharlas.length > 0 && (
+        <div className="print:hidden bg-gradient-to-r from-amber-50 via-white to-blue-50 dark:from-amber-950/30 dark:via-slate-900 dark:to-blue-950/30 border border-amber-200 dark:border-amber-800/70 rounded-2xl p-5 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300">
+                <BellRing className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>Recordatorio de Charlas y Prevención Comunitaria</span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-600 text-white">
+                    {upcomingCharlas.length} {upcomingCharlas.length === 1 ? 'próxima' : 'próximas'}
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Eventos programados para hoy y los próximos 14 días
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('charlas')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800 rounded-xl transition-colors self-start sm:self-auto"
+            >
+              <span>Abrir Charlas</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {upcomingCharlas.map((item) => {
+              const ch = item.charla;
+              const badgeCls =
+                item.status === 'today'
+                  ? 'bg-rose-600 text-white animate-pulse'
+                  : item.status === 'tomorrow'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-blue-600 text-white';
+
+              return (
+                <div
+                  key={item.key}
+                  onClick={() => onNavigate('charlas')}
+                  className="cursor-pointer bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-400 dark:hover:border-blue-600 rounded-xl p-3.5 space-y-2 shadow-2xs transition-all"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-mono font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {ch.fecha} {ch.hora ? `• ${ch.hora} hs` : ''}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full font-mono ${badgeCls}`}>
+                      {item.label}
+                    </span>
+                  </div>
+
+                  <div className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2">
+                    {ch.temaTratado}
+                  </div>
+
+                  <div className="space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <School className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      <span className="font-semibold truncate">{ch.lugarInstitucion}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 truncate">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{ch.localidad}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 truncate">
+                      <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">Disertante: {ch.personalDesignado || '-'}</span>
+                    </div>
+                  </div>
+
+                  {ch.observaciones && (
+                    <p className="text-[10px] text-slate-500 italic line-clamp-2 border-t border-slate-100 dark:border-slate-800 pt-1.5">
+                      {ch.observaciones}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* =========================================================================
           OFFICIAL INSTITUTIONAL REPORT CONTAINER (Styled like image_cc972327.png)
@@ -562,96 +731,150 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
            ========================================================================= */}
         <div className="space-y-4">
           <div className="bg-blue-50/80 dark:bg-blue-950/40 px-3 py-1.5 rounded-lg border-l-4 border-blue-600">
-            <h4 className="text-xs font-bold text-blue-900 dark:text-blue-200 uppercase">
-              A. CANTIDADES TOTALES CONSOLIDADAS Y GRÁFICO DE TAREAS OPERATIVAS
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-blue-900 dark:text-blue-200 uppercase">
+                A. CANTIDADES TOTALES CONSOLIDADAS Y GRÁFICO DE TAREAS OPERATIVAS
+              </h4>
+              <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1 select-none">
+                <GripVertical className="w-3 h-3" />
+                <span>Tarjetas arrastrables (organizar orden)</span>
+              </span>
+            </div>
           </div>
 
-          {/* 5 KPI Cards with Colored Header Stripes */}
+          {/* 5 KPI Cards Reorderable by Drag and Drop */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {/* 1. ESCALAMIENTOS */}
-            <div className="bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xs">
-              <div className="h-1.5 bg-indigo-600 w-full" />
-              <div className="p-3">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
-                  ESCALAMIENTOS
-                </span>
-                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 block mt-0.5">
-                  {taskAnalysis.escalamientosCount}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
-                  {taskAnalysis.escalamientosSinRecibo} S/R | {taskAnalysis.escalamientosConRecibo} C/R
-                </span>
-              </div>
-            </div>
+            {kpiCardOrder.map((key) => {
+              const isDragging = draggedKpi === key;
+              const isOver = dragOverKpi === key;
 
-            {/* 2. RESG. EVIDENCIA (STRICT: TOTAL PERSONAS vs TOTAL EXPEDIENTES) */}
-            <div className="bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xs">
-              <div className="h-1.5 bg-teal-600 w-full" />
-              <div className="p-3">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
-                  RESG. EVIDENCIA
-                </span>
-                <span className="text-2xl font-black text-teal-600 dark:text-teal-400 block mt-0.5">
-                  {taskAnalysis.totalPersonasResguardo}
-                </span>
-                <span className="text-[10px] text-teal-700 dark:text-teal-300 font-mono font-bold mt-0.5 block">
-                  {taskAnalysis.totalPersonasResguardo} Pers. | {taskAnalysis.totalExpedientesResguardo} Exp.
-                </span>
-              </div>
-            </div>
+              const renderCardContent = () => {
+                switch (key) {
+                  case 'escalamientos':
+                    return (
+                      <>
+                        <div className="h-1.5 bg-indigo-600 w-full" />
+                        <div className="p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
+                              ESCALAMIENTOS
+                            </span>
+                            <GripVertical className="w-3 h-3 text-slate-400 opacity-50 group-hover:opacity-100" />
+                          </div>
+                          <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 block mt-0.5">
+                            {taskAnalysis.escalamientosCount}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
+                            {taskAnalysis.escalamientosSinRecibo} S/R | {taskAnalysis.escalamientosConRecibo} C/R
+                          </span>
+                        </div>
+                      </>
+                    );
+                  case 'resguardo':
+                    return (
+                      <>
+                        <div className="h-1.5 bg-teal-600 w-full" />
+                        <div className="p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
+                              RESG. EVIDENCIA
+                            </span>
+                            <GripVertical className="w-3 h-3 text-slate-400 opacity-50 group-hover:opacity-100" />
+                          </div>
+                          <span className="text-2xl font-black text-teal-600 dark:text-teal-400 block mt-0.5">
+                            {taskAnalysis.totalPersonasResguardo}
+                          </span>
+                          <span className="text-[10px] text-teal-700 dark:text-teal-300 font-mono font-bold mt-0.5 block">
+                            {taskAnalysis.totalPersonasResguardo} Pers. | {taskAnalysis.totalExpedientesResguardo} Exp.
+                          </span>
+                        </div>
+                      </>
+                    );
+                  case 'descarga':
+                    return (
+                      <>
+                        <div className="h-1.5 bg-amber-500 w-full" />
+                        <div className="p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
+                              DESCARGA FÍLMICA
+                            </span>
+                            <GripVertical className="w-3 h-3 text-slate-400 opacity-50 group-hover:opacity-100" />
+                          </div>
+                          <span className="text-2xl font-black text-amber-600 dark:text-amber-400 block mt-0.5">
+                            {taskAnalysis.descargaFilmicaCount}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
+                            Filmaciones
+                          </span>
+                        </div>
+                      </>
+                    );
+                  case 'ppi':
+                    return (
+                      <div
+                        onClick={() => onNavigate?.('ppi')}
+                        className="cursor-pointer hover:border-sky-400 dark:hover:border-sky-600 transition-all hover:scale-[1.01]"
+                        title="Ver Módulo Especial de Causas PPI"
+                      >
+                        <div className="h-1.5 bg-sky-500 w-full" />
+                        <div className="p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
+                              PERS. POLICIAL INVOL.
+                            </span>
+                            <GripVertical className="w-3 h-3 text-slate-400 opacity-50 group-hover:opacity-100" />
+                          </div>
+                          <span className="text-2xl font-black text-sky-600 dark:text-sky-400 block mt-0.5">
+                            {taskAnalysis.ppiCount}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
+                            {taskAnalysis.ppiConOficio} C/Of | {taskAnalysis.ppiSinOficio} S/Of
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  case 'falta_oficio':
+                    return (
+                      <>
+                        <div className="h-1.5 bg-orange-600 w-full" />
+                        <div className="p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
+                              FALTA DE OFICIO
+                            </span>
+                            <GripVertical className="w-3 h-3 text-slate-400 opacity-50 group-hover:opacity-100" />
+                          </div>
+                          <span className="text-2xl font-black text-orange-600 dark:text-orange-400 block mt-0.5">
+                            {taskAnalysis.faltaOficioCount}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
+                            Pendientes
+                          </span>
+                        </div>
+                      </>
+                    );
+                  default:
+                    return null;
+                }
+              };
 
-            {/* 3. DESCARGA FÍLMICA */}
-            <div className="bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xs">
-              <div className="h-1.5 bg-amber-500 w-full" />
-              <div className="p-3">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
-                  DESCARGA FÍLMICA
-                </span>
-                <span className="text-2xl font-black text-amber-600 dark:text-amber-400 block mt-0.5">
-                  {taskAnalysis.descargaFilmicaCount}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
-                  Filmaciones
-                </span>
-              </div>
-            </div>
-
-            {/* 4. PERS. POLICIAL INVOL. (PPI) */}
-            <div
-              onClick={() => onNavigate?.('ppi')}
-              className="bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xs cursor-pointer hover:border-sky-400 dark:hover:border-sky-600 transition-all hover:scale-[1.02]"
-              title="Ver Módulo Especial de Causas PPI"
-            >
-              <div className="h-1.5 bg-sky-500 w-full" />
-              <div className="p-3">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
-                  PERS. POLICIAL INVOL.
-                </span>
-                <span className="text-2xl font-black text-sky-600 dark:text-sky-400 block mt-0.5">
-                  {taskAnalysis.ppiCount}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
-                  {taskAnalysis.ppiConOficio} C/Of | {taskAnalysis.ppiSinOficio} S/Of
-                </span>
-              </div>
-            </div>
-
-            {/* 5. FALTA DE OFICIO */}
-            <div className="bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xs">
-              <div className="h-1.5 bg-orange-600 w-full" />
-              <div className="p-3">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block tracking-wider">
-                  FALTA DE OFICIO
-                </span>
-                <span className="text-2xl font-black text-orange-600 dark:text-orange-400 block mt-0.5">
-                  {taskAnalysis.faltaOficioCount}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
-                  Pendientes
-                </span>
-              </div>
-            </div>
+              return (
+                <div
+                  key={key}
+                  draggable={true}
+                  onDragStart={(e) => handleKpiDragStart(e, key)}
+                  onDragOver={(e) => handleKpiDragOver(e, key)}
+                  onDrop={(e) => handleKpiDrop(e, key)}
+                  onDragEnd={handleKpiDragEnd}
+                  className={`group bg-white dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xs cursor-grab active:cursor-grabbing transition-all select-none ${
+                    isDragging ? 'opacity-40 scale-95' : 'opacity-100'
+                  } ${isOver ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-950/30' : ''}`}
+                >
+                  {renderCardContent()}
+                </div>
+              );
+            })}
           </div>
 
           {/* Horizontal Progress Bars + Donut Chart Center */}
@@ -1124,7 +1347,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         <div className="space-y-3">
           <div className="bg-blue-50/80 dark:bg-blue-950/40 px-3 py-1.5 rounded-lg border-l-4 border-blue-600">
             <h4 className="text-xs font-bold text-blue-900 dark:text-blue-200 uppercase">
-              F. ESTADÍSTICA DE CHARLAS OPERATIVAS REALIZADAS (TOTAL: {filteredCharlas.length} CHARLAS)
+              F. CHARLAS Y PREVENCIÓN COMUNITARIA (TOTAL: {filteredCharlas.length} CHARLAS)
             </h4>
           </div>
 
@@ -1137,15 +1360,23 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
               {filteredCharlas.map((ch) => (
                 <div
                   key={ch.id}
-                  className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 text-xs"
+                  className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 text-xs space-y-1"
                 >
                   <div className="font-bold text-slate-800 dark:text-slate-200">{ch.temaTratado}</div>
-                  <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                    Fecha: {ch.fecha} • Lugar: {ch.lugarInstitucion} ({ch.localidad})
+                  <div className="text-[11px] text-slate-500 font-mono">
+                    Fecha: {ch.fecha} {ch.hora ? `• Hora: ${ch.hora} hs` : ''} • Localidad: {ch.localidad}
                   </div>
-                  <div className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold mt-1">
-                    Asistentes: {ch.cantidadAsistentes} personas • Disertante: {ch.personalDesignado}
+                  <div className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                    Lugar / Institución: {ch.lugarInstitucion}
                   </div>
+                  <div className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">
+                    Disertante Designado: {ch.personalDesignado || '-'}
+                  </div>
+                  {ch.observaciones && (
+                    <div className="text-[11px] text-slate-500 italic">
+                      Obs.: {ch.observaciones}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -552,24 +552,24 @@ export const initialSgpBackup: SgpBackupData = {
   charlas: [
     {
       id: 1,
-      fecha: '14/10/2026',
-      lugarInstitucion: 'Colegio Secundario EPES N° 22',
+      fecha: '17/11/2026',
+      hora: '09:30',
       localidad: 'Laguna Blanca',
+      lugarInstitucion: 'Colegio Secundario EPES N° 22',
       temaTratado: 'Prevención de Ciberdelito, Grooming y Seguridad en Redes Sociales',
       personalDesignado: 'Oficial Principal Fernández, Esteban David',
-      cantidadAsistentes: 85,
-      observaciones: 'Excelente participación de alumnos y cuerpo docente con entrega de folletería preventiva.',
+      observaciones: 'Charla preventiva dirigida a alumnos y cuerpo docente con entrega de folletería.',
       delegacionId: 1
     },
     {
       id: 2,
-      fecha: '08/09/2026',
-      lugarInstitucion: 'Centro Comunitario Municipal',
+      fecha: '20/11/2026',
+      hora: '10:00',
       localidad: 'Riacho He Hé',
+      lugarInstitucion: 'Centro Comunitario Municipal',
       temaTratado: 'Seguridad Vial y Normativa de Tránsito para Conductores Jóvenes',
       personalDesignado: 'Comisario Inspector Gómez, Roberto Manuel',
-      cantidadAsistentes: 60,
-      observaciones: 'Disertación con soporte audiovisual y simulador de distancias de frenado.',
+      observaciones: 'Disertación con soporte audiovisual y material preventivo.',
       delegacionId: 1
     }
   ],

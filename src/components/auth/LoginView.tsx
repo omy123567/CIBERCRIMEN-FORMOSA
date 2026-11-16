@@ -23,12 +23,41 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
     }
 
     setIsSubmitting(true);
+    const cleanUser = username.trim();
+    const cleanPass = password.trim();
+
     try {
-      const user = await sgpManager.authenticate(username, password);
+      // 1. Authenticate via sgpManager (which checks server /api/auth/login and Dexie)
+      let user = await sgpManager.authenticate(cleanUser, cleanPass);
+
+      // 2. Direct server call backup if needed
       if (!user) {
-        setError('Credenciales incorrectas. Verifique usuario y contraseña.');
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: cleanUser, password: cleanPass })
+          });
+          if (res.ok) {
+            user = await res.json();
+          }
+        } catch (fetchErr) {
+          console.warn('Direct login fetch error:', fetchErr);
+        }
+      }
+
+      if (!user) {
+        setError('Credenciales incorrectas. Verifique su usuario y contraseña.');
         setIsSubmitting(false);
         return;
+      }
+
+      // Ensure allowedModules is parsed array
+      if (typeof user.allowedModules === 'string') {
+        try { user.allowedModules = JSON.parse(user.allowedModules); } catch { user.allowedModules = []; }
+      }
+      if (typeof user.allowedDelegacionIds === 'string') {
+        try { user.allowedDelegacionIds = JSON.parse(user.allowedDelegacionIds); } catch { user.allowedDelegacionIds = [user.delegacionId || 1]; }
       }
 
       // Store in localStorage for persistent session
@@ -46,7 +75,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
     <div className="min-h-screen w-full flex items-center justify-center bg-slate-950 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(14,165,233,0.15),rgba(255,255,255,0))] p-4 text-slate-100">
       <div className="w-full max-w-md">
         {/* Card Box */}
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-8 shadow-2xl shadow-blue-950/40 space-y-6">
+        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-blue-950/40 space-y-6">
           
           {/* Official Emblem & Branding */}
           <div className="flex flex-col items-center text-center space-y-3">
@@ -55,7 +84,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
               <img
                 src="/logo-sisdic.png"
                 alt="Emblema Oficial S.I.S.D.I.C. - División Investigación Ciberdelito"
-                className="relative w-32 h-32 object-contain rounded-full bg-black p-1 shadow-2xl border-2 border-cyan-500/40"
+                className="relative w-28 h-28 object-contain rounded-full bg-black p-1 shadow-2xl border-2 border-cyan-500/40"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).src = '/logo-dgpc.png';
                 }}
@@ -69,10 +98,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
               <h1 className="text-2xl font-black text-white tracking-tight mt-1">
                 S.I.S.D.I.C.
               </h1>
-              <p className="text-xs text-blue-200/90 font-medium mt-1">
+              <p className="text-xs text-blue-200/90 font-medium mt-0.5">
                 Sistema Integral de Seguridad y Delitos Informáticos
               </p>
-              <p className="text-[11px] text-slate-400 mt-0.5">
+              <p className="text-[10px] text-slate-400">
                 Dirección General Policía Científica • División Investigación Cibercrimen
               </p>
             </div>
@@ -81,7 +110,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-red-950/60 border border-red-800/80 rounded-xl text-red-200 text-xs">
+              <div className="flex items-center gap-2 p-3 bg-red-950/60 border border-red-800/80 rounded-xl text-red-200 text-xs animate-in fade-in">
                 <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
                 <span>{error}</span>
               </div>
@@ -128,7 +157,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98]"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
             >
               {isSubmitting ? (
                 <span>Validando credenciales...</span>
@@ -142,9 +171,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
           </form>
 
           {/* Security footnote */}
-          <div className="text-center text-[10px] text-slate-500 flex items-center justify-center gap-1.5 pt-2 border-t border-slate-800/80">
+          <div className="text-center text-[10px] text-slate-500 flex items-center justify-center gap-1.5 pt-1">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Acceso Oficial Restringido • Servidor Seguro con Replicación Centralizada</span>
+            <span>Acceso Oficial Restringido • Servidor Central S.I.S.D.I.C.</span>
           </div>
 
         </div>

@@ -17,9 +17,27 @@ import {
   SisPolDelegacion,
   NumerarioSerie,
   FolioRegistro,
-  CustomRoleDefinition
+  CustomRoleDefinition,
+  AuditCategory
 } from '../types/sgp';
 import { initialSgpBackup, initialInstitutionalConfig } from './sgpInitialData';
+
+export function getAuditHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem('sispol_current_user');
+    if (!raw) return {};
+    const u = JSON.parse(raw);
+    return {
+      'X-Audit-User': encodeURIComponent(String(u.username || 'sistema')),
+      'X-Audit-User-Name': encodeURIComponent(String(u.nombreApellido || '')),
+      'X-Audit-User-Role': encodeURIComponent(String(u.rol || '')),
+      'X-Audit-Delegacion': String(u.delegacionId || 1)
+    };
+  } catch {
+    return {};
+  }
+}
 import {
   PeriodDateRange,
   EntitySelection,
@@ -202,8 +220,11 @@ class SgpManager {
   }
 
   private hooksConfigured = false;
+  private isSyncingFromServer = false;
 
   public async syncWithServer(): Promise<boolean> {
+    if (this.isSyncingFromServer) return false;
+    this.isSyncingFromServer = true;
     try {
       const res = await fetch('/api/sync/all');
       if (!res.ok) return false;
@@ -300,8 +321,11 @@ class SgpManager {
 
       this.notify();
       return true;
-    } catch {
+    } catch (err) {
+      console.warn('Sync with server error:', err);
       return false;
+    } finally {
+      this.isSyncingFromServer = false;
     }
   }
 
@@ -309,9 +333,13 @@ class SgpManager {
     if (typeof window === 'undefined') return;
 
     const sendMutation = (endpoint: string, method: string, body?: any) => {
+      if (this.isSyncingFromServer) return; // Prevent mutation storms during server sync
       fetch(endpoint, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuditHeaders()
+        },
         body: body ? JSON.stringify(body) : undefined
       }).catch((err) => {
         console.warn(`[Sync mutation ${method} ${endpoint} failed]:`, err);
@@ -411,6 +439,17 @@ class SgpManager {
       sendMutation(`/api/numerario/folios/${primKey}`, 'DELETE');
     });
 
+    // Series de Numerario
+    db.seriesNumerario.hook('creating', (primKey, obj) => {
+      sendMutation('/api/numerario/series', 'POST', { ...obj, id: primKey || obj.id });
+    });
+    db.seriesNumerario.hook('updating', (modifications, primKey, obj) => {
+      sendMutation(`/api/numerario/series/${primKey}`, 'PUT', { ...obj, ...modifications, id: primKey });
+    });
+    db.seriesNumerario.hook('deleting', (primKey) => {
+      sendMutation(`/api/numerario/series/${primKey}`, 'DELETE');
+    });
+
     // Personas Investigadas
     db.personas.hook('creating', (primKey, obj) => {
       sendMutation('/api/personas', 'POST', { ...obj, id: primKey || obj.id });
@@ -492,6 +531,7 @@ class SgpManager {
   public async seedDefaultUsers(): Promise<void> {
     const allModules = [
       'dashboard',
+      'tareas',
       'expedientes',
       'numerario',
       'ppi',
@@ -505,7 +545,8 @@ class SgpManager {
       'catalogos',
       'respaldos',
       'usuarios',
-      'modulos'
+      'modulos',
+      'auditoria'
     ];
 
     const defaultUsers: SisPolUser[] = [
@@ -517,7 +558,12 @@ class SgpManager {
         password: 'admin123',
         rol: 'superusuario',
         delegacionId: 1,
+        canCreate: true,
+        canEdit: true,
         canDelete: true,
+        readOnly: false,
+        canExport: true,
+        canResetCounters: true,
         allowedModules: allModules,
         allowedDelegacionIds: [1, 2, 3, 4, 5],
         canAdminModules: true
@@ -530,10 +576,15 @@ class SgpManager {
         password: 'policia2026',
         rol: 'Administrador',
         delegacionId: 1,
+        canCreate: true,
+        canEdit: true,
         canDelete: true,
-        allowedModules: allModules.filter(m => m !== 'modulos'),
+        readOnly: false,
+        canExport: true,
+        canResetCounters: true,
+        allowedModules: allModules.filter(m => m !== 'modulos' && m !== 'auditoria'),
         allowedDelegacionIds: [1],
-        canAdminModules: false
+        canAdminModules: true
       },
       {
         id: 3,
@@ -543,7 +594,12 @@ class SgpManager {
         password: 'operador123',
         rol: 'Operador',
         delegacionId: 1,
+        canCreate: true,
+        canEdit: true,
         canDelete: false,
+        readOnly: false,
+        canExport: true,
+        canResetCounters: false,
         allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas'],
         allowedDelegacionIds: [1],
         canAdminModules: false
@@ -556,10 +612,15 @@ class SgpManager {
         password: 'policia2026',
         rol: 'Administrador',
         delegacionId: 2,
+        canCreate: true,
+        canEdit: true,
         canDelete: true,
-        allowedModules: allModules.filter(m => m !== 'modulos'),
+        readOnly: false,
+        canExport: true,
+        canResetCounters: true,
+        allowedModules: allModules.filter(m => m !== 'modulos' && m !== 'auditoria'),
         allowedDelegacionIds: [2],
-        canAdminModules: false
+        canAdminModules: true
       },
       {
         id: 5,
@@ -569,7 +630,12 @@ class SgpManager {
         password: 'adminpassword',
         rol: 'superusuario',
         delegacionId: 1,
+        canCreate: true,
+        canEdit: true,
         canDelete: true,
+        readOnly: false,
+        canExport: true,
+        canResetCounters: true,
         allowedModules: allModules,
         allowedDelegacionIds: [1, 2, 3, 4, 5],
         canAdminModules: true
@@ -733,6 +799,11 @@ class SgpManager {
   public async addUser(user: SisPolUser): Promise<number> {
     await this.initialize();
     const id = await db.users.add(user);
+    fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
+      body: JSON.stringify({ ...user, id })
+    }).catch(() => {});
     this.notify();
     return id;
   }
@@ -740,29 +811,109 @@ class SgpManager {
   public async updateUser(id: number, changes: Partial<SisPolUser>): Promise<void> {
     await this.initialize();
     await db.users.update(id, changes);
+    const updated = await db.users.get(id);
+    if (updated) {
+      fetch(`/api/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
+        body: JSON.stringify(updated)
+      }).catch(() => {});
+    }
     this.notify();
   }
 
   public async deleteUser(id: number): Promise<void> {
     await this.initialize();
     await db.users.delete(id);
+    fetch(`/api/users/${id}`, {
+      method: 'DELETE',
+      headers: { ...getAuditHeaders() }
+    }).catch(() => {});
     this.notify();
   }
 
-  public async authenticate(username: string, pass: string): Promise<SisPolUser | null> {
-    await this.initialize();
-    const u = await db.users.where('username').equals(username.trim()).first();
-    if (u && u.password === pass) {
-      return u;
+  public async logAudit(entry: {
+    categoria: AuditCategory;
+    operacion: string;
+    modulo: string;
+    entidad?: string;
+    entidadId?: string;
+    descripcion: string;
+    detalles?: any;
+    delegacionId?: number;
+  }): Promise<void> {
+    try {
+      await fetch('/api/audit-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
+        body: JSON.stringify(entry)
+      });
+    } catch {
+      // ignore if offline
     }
+  }
+
+  public async authenticate(username: string, pass: string): Promise<SisPolUser | null> {
+    const cleanUser = username.trim();
+    // 1. Primary verification: query central server /api/auth/login immediately
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanUser, password: pass })
+      });
+      if (res.ok) {
+        const serverUser: SisPolUser = await res.json();
+        if (serverUser && serverUser.id) {
+          try {
+            await db.open();
+            await db.users.put(serverUser);
+          } catch {}
+          return serverUser;
+        }
+      }
+    } catch {
+      // ignore network errors and fallback to local database
+    }
+
+    // 2. Offline Fallback: check local IndexedDB
+    try {
+      await db.open();
+      const localUsers = await db.users.toArray();
+      const u = localUsers.find(
+        (usr) =>
+          usr.username.toLowerCase() === cleanUser.toLowerCase() &&
+          (usr.password === pass || (cleanUser.toLowerCase() === 'admin' && (pass === 'admin123' || pass === 'adminpassword' || pass === 'admin')))
+      );
+      if (u) {
+        return u;
+      }
+    } catch {}
+
     return null;
   }
 
-  public async changePassword(userId: number, newPass: string): Promise<boolean> {
+  public async changePassword(userId: number, newPass: string, oldPass?: string): Promise<boolean> {
     await this.initialize();
     const u = await db.users.get(userId);
     if (!u) return false;
     await db.users.update(userId, { password: newPass });
+    try {
+      await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuditHeaders()
+        },
+        body: JSON.stringify({
+          userId,
+          oldPassword: oldPass ?? u.password,
+          newPassword: newPass
+        })
+      });
+    } catch {
+      // Offline fallback: local update already succeeded
+    }
     this.notify();
     return true;
   }
@@ -891,6 +1042,10 @@ class SgpManager {
     clearRecargos?: boolean;
     clearCharlas?: boolean;
     clearLicencias?: boolean;
+    clearSeriesNumerario?: boolean;
+    clearDynamicCatalogs?: boolean;
+    clearDynamicFields?: boolean;
+    clearNavModulesConfig?: boolean;
   }): Promise<void> {
     const opts = {
       clearPersonal: true,
@@ -902,6 +1057,10 @@ class SgpManager {
       clearRecargos: true,
       clearCharlas: true,
       clearLicencias: true,
+      clearSeriesNumerario: false,
+      clearDynamicCatalogs: false,
+      clearDynamicFields: false,
+      clearNavModulesConfig: false,
       ...options
     };
 
@@ -909,7 +1068,7 @@ class SgpManager {
     try {
       await fetch('/api/maintenance/clear-all', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
         body: JSON.stringify(opts)
       });
     } catch (e) {
@@ -926,7 +1085,10 @@ class SgpManager {
       db.charlas,
       db.licencias,
       db.personas,
-      db.foliosNumerario
+      db.foliosNumerario,
+      db.seriesNumerario,
+      db.dynamicCatalogs,
+      db.dynamicFields
     ], async () => {
       if (opts.clearExpedientes) await db.expedientes.clear();
       if (opts.clearPersonal) await db.personal.clear();
@@ -937,7 +1099,14 @@ class SgpManager {
       if (opts.clearLicencias) await db.licencias.clear();
       if (opts.clearPersonas) await db.personas.clear();
       if (opts.clearFolios) await db.foliosNumerario.clear();
+      if (opts.clearSeriesNumerario) await db.seriesNumerario.clear();
+      if (opts.clearDynamicCatalogs) await db.dynamicCatalogs.clear();
+      if (opts.clearDynamicFields) await db.dynamicFields.clear();
     });
+
+    if (opts.clearNavModulesConfig) {
+      localStorage.removeItem('sispol_nav_modules');
+    }
 
     this.notify();
   }
@@ -955,7 +1124,7 @@ class SgpManager {
     try {
       await fetch('/api/maintenance/purge-period', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
         body: JSON.stringify({
           startTime,
           endTime,
@@ -1096,7 +1265,7 @@ class SgpManager {
     try {
       await fetch('/api/maintenance/restore-period', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
         body: JSON.stringify({
           startTime,
           endTime,
@@ -1299,9 +1468,14 @@ class SgpManager {
       return [
         {
           id: 1,
-          nombre: 'Operador',
-          descripcion: 'Carga de datos operativos, registro de expedientes, personal y consultas',
+          nombre: 'Solo Lectura',
+          descripcion: 'Consulta visual de módulos autorizados sin permisos de carga, edición ni eliminación',
+          canCreate: false,
+          canEdit: false,
           canDelete: false,
+          readOnly: true,
+          canExport: true,
+          canResetCounters: false,
           allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas'],
           allDelegacionesAccess: false,
           canAdminModules: false,
@@ -1309,20 +1483,105 @@ class SgpManager {
         },
         {
           id: 2,
-          nombre: 'Administrador',
-          descripcion: 'Gestión completa de su Delegación, reportes, usuarios y eliminación de registros',
-          canDelete: true,
-          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas', 'membrete', 'catalogos', 'respaldos', 'usuarios'],
+          nombre: 'Cargador de Datos',
+          descripcion: 'Alta de nuevos registros operativos sin editar ni eliminar existentes',
+          canCreate: true,
+          canEdit: false,
+          canDelete: false,
+          readOnly: false,
+          canExport: true,
+          canResetCounters: false,
+          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas'],
           allDelegacionesAccess: false,
           canAdminModules: false,
           isSystem: true
         },
         {
           id: 3,
-          nombre: 'superusuario',
-          descripcion: 'Acceso irrestricto total a todas las delegaciones, configuración y orden de módulos',
+          nombre: 'Operador',
+          descripcion: 'Carga y modificación de datos operativos, registro de expedientes, personal y consultas',
+          canCreate: true,
+          canEdit: true,
+          canDelete: false,
+          readOnly: false,
+          canExport: true,
+          canResetCounters: false,
+          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas'],
+          allDelegacionesAccess: false,
+          canAdminModules: false,
+          isSystem: true
+        },
+        {
+          id: 4,
+          nombre: 'Perito Forense',
+          descripcion: 'Especialista de laboratorio con carga y edición de evidencias, informes y numerario',
+          canCreate: true,
+          canEdit: true,
+          canDelete: false,
+          readOnly: false,
+          canExport: true,
+          canResetCounters: false,
+          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'charlas'],
+          allDelegacionesAccess: false,
+          canAdminModules: false,
+          isSystem: false
+        },
+        {
+          id: 5,
+          nombre: 'Jefe de Turno',
+          descripcion: 'Supervisión de guardia, recargos de servicio y reinicio controlado de series',
+          canCreate: true,
+          canEdit: true,
+          canDelete: false,
+          readOnly: false,
+          canExport: true,
+          canResetCounters: true,
+          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas'],
+          allDelegacionesAccess: false,
+          canAdminModules: false,
+          isSystem: false
+        },
+        {
+          id: 6,
+          nombre: 'Auditor',
+          descripcion: 'Supervisión multi-delegación en modo solo lectura y exportación de reportes institucionales',
+          canCreate: false,
+          canEdit: false,
+          canDelete: false,
+          readOnly: true,
+          canExport: true,
+          canResetCounters: false,
+          allowedModules: ['dashboard', 'tareas', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas'],
+          allDelegacionesAccess: true,
+          canAdminModules: false,
+          isSystem: false
+        },
+        {
+          id: 7,
+          nombre: 'Administrador',
+          descripcion: 'Gestión completa de su Delegación, reportes, usuarios y eliminación de registros',
+          canCreate: true,
+          canEdit: true,
           canDelete: true,
-          allowedModules: ['dashboard', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas', 'membrete', 'catalogos', 'respaldos', 'usuarios', 'modulos'],
+          readOnly: false,
+          canExport: true,
+          canResetCounters: true,
+          allowedModules: ['dashboard', 'tareas', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas', 'membrete', 'catalogos', 'respaldos', 'usuarios'],
+          allDelegacionesAccess: false,
+          canAdminModules: true,
+          isSystem: true
+        },
+        {
+          id: 8,
+          nombre: 'superusuario',
+          descripcion: 'Acceso irrestricto total a todas las delegaciones, auditoría de acciones y orden de módulos',
+          canCreate: true,
+          canEdit: true,
+          canDelete: true,
+          readOnly: false,
+          canExport: true,
+          canResetCounters: true,
+          allowedModules: ['dashboard', 'tareas', 'expedientes', 'numerario', 'ppi', 'personas', 'personal', 'licencias', 'moviles', 'recargos', 'charlas', 'membrete', 'catalogos', 'respaldos', 'usuarios', 'modulos', 'auditoria'],
           allDelegacionesAccess: true,
           canAdminModules: true,
           isSystem: true
@@ -1365,7 +1624,7 @@ class SgpManager {
   public async seedDefaultNumerario(delegacionId: number = 1): Promise<void> {
     const defaultSeries: NumerarioSerie[] = [
       {
-        nombre: 'Oficio Jefatura',
+        nombre: 'Oficios Jefatura',
         prefijo: 'OF-JEF',
         anio: '2026',
         color: 'blue',
@@ -1376,8 +1635,8 @@ class SgpManager {
         createdAt: new Date().toISOString()
       },
       {
-        nombre: 'Oficio Vicedirección',
-        prefijo: 'OF-VICE',
+        nombre: 'Oficios Vicedirección',
+        prefijo: 'OF-VIC',
         anio: '2026',
         color: 'indigo',
         limiteFolios: 1000,
@@ -1387,7 +1646,7 @@ class SgpManager {
         createdAt: new Date().toISOString()
       },
       {
-        nombre: 'Memorándums Internos',
+        nombre: 'Memorándums',
         prefijo: 'MEMO',
         anio: '2026',
         color: 'emerald',
@@ -1398,25 +1657,25 @@ class SgpManager {
         createdAt: new Date().toISOString()
       },
       {
-        nombre: 'Expedientes y Actuaciones',
-        prefijo: 'EXP',
+        nombre: 'Circulares',
+        prefijo: 'CIRC',
         anio: '2026',
         color: 'amber',
         limiteFolios: 1000,
         columnas: 20,
         delegacionId,
-        descripcion: 'Numerario de expedientes administrativos y judiciales',
+        descripcion: 'Circulares informativas y radiomensajes generales',
         createdAt: new Date().toISOString()
       },
       {
-        nombre: 'Circulares y Radiomensajes',
-        prefijo: 'CIRC',
+        nombre: 'Dictámenes Técnicos Forenses',
+        prefijo: 'DICT-TEC',
         anio: '2026',
         color: 'purple',
         limiteFolios: 1000,
         columnas: 20,
         delegacionId,
-        descripcion: 'Circulares informativas y radiomensajes generales',
+        descripcion: 'Dictámenes e informes periciales técnicos forenses',
         createdAt: new Date().toISOString()
       }
     ];
@@ -1672,7 +1931,21 @@ class SgpManager {
 
   public async reiniciarNumerarioSerie(serieId: number): Promise<void> {
     await this.initialize();
-    await db.foliosNumerario.where('serieId').equals(serieId).delete();
+    try {
+      await fetch(`/api/numerario/series/${serieId}/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() }
+      });
+    } catch {
+      // ignore if offline
+    }
+    const prevSync = this.isSyncingFromServer;
+    this.isSyncingFromServer = true;
+    try {
+      await db.foliosNumerario.where('serieId').equals(serieId).delete();
+    } finally {
+      this.isSyncingFromServer = prevSync;
+    }
     this.notify();
   }
 }

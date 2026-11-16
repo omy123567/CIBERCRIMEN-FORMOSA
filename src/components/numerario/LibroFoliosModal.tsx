@@ -11,9 +11,15 @@ import {
   Calendar,
   Building,
   User,
-  ExternalLink
+  ExternalLink,
+  Edit2,
+  Trash2,
+  SlidersHorizontal,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { FolioRegistro, NumerarioSerie, InstitutionalConfig } from '../../types/sgp';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface LibroFoliosModalProps {
   isOpen: boolean;
@@ -23,7 +29,9 @@ interface LibroFoliosModalProps {
   foliosActiveSerie: FolioRegistro[];
   allFolios: FolioRegistro[];
   config: InstitutionalConfig;
+  canDelete?: boolean;
   onSelectFolio: (folio: FolioRegistro) => void;
+  onDeleteFolio?: (id: number) => Promise<void>;
 }
 
 export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
@@ -34,11 +42,43 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
   foliosActiveSerie,
   allFolios,
   config,
-  onSelectFolio
+  canDelete = true,
+  onSelectFolio,
+  onDeleteFolio
 }) => {
+  const perms = usePermissions();
+  const effectiveCanDelete = canDelete && perms.canDelete;
   const [viewScope, setViewScope] = useState<'ACTIVE' | 'ALL'>('ACTIVE');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTipo, setFilterTipo] = useState<string>('ALL');
+  const [showColPicker, setShowColPicker] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
+    numero: true,
+    serie: true,
+    caratula: true,
+    tipoDocumento: true,
+    asunto: true,
+    destinatario: true,
+    solicitante: true,
+    fecha: true
+  });
+
+  const toggleColumn = (key: string) => {
+    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const setAllColumns = (val: boolean) => {
+    setVisibleColumns({
+      numero: val,
+      serie: val,
+      caratula: val,
+      tipoDocumento: val,
+      asunto: val,
+      destinatario: val,
+      solicitante: val,
+      fecha: val
+    });
+  };
 
   if (!isOpen) return null;
 
@@ -65,24 +105,35 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
 
   // CSV Export
   const handleExportCSV = () => {
-    const headers = ['Folio N°', 'Serie', 'Carátula', 'Tipo Documento', 'Asunto / Objeto', 'Destinatario', 'Iniciador / Solicitante', 'Fecha', 'Hora', 'Usuario Registrador', 'Observaciones'];
-    
+    if (!perms.canExport) return;
+    const rawHeaders = [
+      { key: 'numero', title: 'Folio N°' },
+      { key: 'serie', title: 'Serie' },
+      { key: 'caratula', title: 'Carátula' },
+      { key: 'tipoDocumento', title: 'Tipo Documento' },
+      { key: 'asunto', title: 'Asunto / Objeto' },
+      { key: 'destinatario', title: 'Destinatario' },
+      { key: 'solicitante', title: 'Iniciador / Solicitante' },
+      { key: 'fecha', title: 'Fecha' }
+    ];
+
+    const activeCols = rawHeaders.filter(h => visibleColumns[h.key] !== false);
+    const headers = activeCols.map(h => h.title);
+
     const rows = filtered.map((f) => {
       const serieObj = allSeries.find(s => s.id === f.serieId);
       const serieName = serieObj ? `${serieObj.nombre} (${serieObj.prefijo})` : activeSerie.nombre;
-      return [
-        f.numero.toString(),
-        serieName,
-        f.caratula,
-        f.tipoDocumento,
-        `"${(f.asunto || '').replace(/"/g, '""')}"`,
-        `"${(f.destinatario || '').replace(/"/g, '""')}"`,
-        `"${(f.solicitante || '').replace(/"/g, '""')}"`,
-        f.fecha,
-        f.hora,
-        f.usuarioAsigno || '',
-        `"${(f.observaciones || '').replace(/"/g, '""')}"`
-      ];
+      const colMap: Record<string, string> = {
+        numero: f.numero.toString(),
+        serie: serieName,
+        caratula: f.caratula || '',
+        tipoDocumento: f.tipoDocumento || '',
+        asunto: `"${(f.asunto || '').replace(/"/g, '""')}"`,
+        destinatario: `"${(f.destinatario || '').replace(/"/g, '""')}"`,
+        solicitante: `"${(f.solicitante || '').replace(/"/g, '""')}"`,
+        fecha: f.fecha || ''
+      };
+      return activeCols.map(c => colMap[c.key] || '');
     });
 
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\r\n');
@@ -99,6 +150,7 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
   };
 
   const handlePrint = () => {
+    if (!perms.canExport) return;
     window.print();
   };
 
@@ -124,22 +176,35 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/70 dark:text-emerald-300 rounded-xl transition-colors shadow-xs"
-              title="Exportar a Excel / CSV con UTF-8"
+              onClick={() => setShowColPicker(!showColPicker)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl transition-colors shadow-xs"
+              title="Seleccionar datos y columnas visibles"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Exportar Excel / CSV</span>
+              <SlidersHorizontal className="w-4 h-4 text-blue-500" />
+              <span>Columnas</span>
             </button>
 
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl transition-colors shadow-xs"
-              title="Imprimir libro de folios"
-            >
-              <Printer className="w-4 h-4" />
-              <span>Imprimir</span>
-            </button>
+            {perms.canExport && (
+              <>
+                <button
+                  onClick={handleExportCSV}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/70 dark:text-emerald-300 rounded-xl transition-colors shadow-xs"
+                  title="Exportar a Excel / CSV con UTF-8"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Exportar Excel / CSV</span>
+                </button>
+
+                <button
+                  onClick={handlePrint}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-xl transition-colors shadow-xs"
+                  title="Imprimir libro de folios"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimir</span>
+                </button>
+              </>
+            )}
 
             <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600">
               <X className="w-5 h-5" />
@@ -304,17 +369,37 @@ export const LibroFoliosModal: React.FC<LibroFoliosModalProps> = ({
                       </td>
 
                       <td className="p-3 text-right print:hidden whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectFolio(f);
-                          }}
-                          className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 rounded-lg transition-colors"
-                          title="Ver Ficha Detallada"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          {perms.canEdit && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectFolio(f);
+                              }}
+                              className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 rounded-lg transition-colors"
+                              title="Ver / Modificar Folio"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {effectiveCanDelete && onDeleteFolio && (
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (window.confirm(`¿Confirmar eliminación del registro del Folio N° ${f.numero} (${f.caratula})? El folio volverá a quedar LIBRE.`)) {
+                                  await onDeleteFolio(f.id!);
+                                }
+                              }}
+                              className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/60 rounded-lg transition-colors"
+                              title="Eliminar / Liberar Folio"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

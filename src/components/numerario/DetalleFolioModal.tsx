@@ -14,6 +14,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { FolioRegistro, NumerarioSerie } from '../../types/sgp';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface DetalleFolioModalProps {
   isOpen: boolean;
@@ -34,9 +35,15 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
   onUpdateFolio,
   onLiberarFolio
 }) => {
+  const perms = usePermissions();
+  const effectiveCanDelete = canDelete && perms.canDelete;
   const [isEditing, setIsEditing] = useState(false);
-  const [asunto, setAsunto] = useState(folio.asunto);
-  const [destinatario, setDestinatario] = useState(folio.destinatario);
+  const [caratula, setCaratula] = useState(folio.caratula || '');
+  const [tipoDocumento, setTipoDocumento] = useState(folio.tipoDocumento || 'Nota Oficial');
+  const [fecha, setFecha] = useState(folio.fecha || '');
+  const [hora, setHora] = useState(folio.hora || '');
+  const [asunto, setAsunto] = useState(folio.asunto || '');
+  const [destinatario, setDestinatario] = useState(folio.destinatario || '');
   const [solicitante, setSolicitante] = useState(folio.solicitante || '');
   const [observaciones, setObservaciones] = useState(folio.observaciones || '');
   
@@ -49,10 +56,14 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
   const isRange = Boolean(folio.rangoInicio && folio.rangoFin && folio.rangoInicio !== folio.rangoFin);
 
   const handleSaveEdit = async () => {
-    if (!asunto.trim() || !destinatario.trim()) return;
+    if (!perms.canEdit || !asunto.trim()) return;
     setIsSubmitting(true);
     try {
       await onUpdateFolio(folio.id!, {
+        caratula: caratula.trim() || folio.caratula,
+        tipoDocumento: tipoDocumento.trim() || folio.tipoDocumento,
+        fecha: fecha.trim() || folio.fecha,
+        hora: hora.trim() || folio.hora,
         asunto: asunto.trim(),
         destinatario: destinatario.trim(),
         solicitante: solicitante.trim(),
@@ -65,6 +76,7 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
   };
 
   const handleConfirmLiberar = async () => {
+    if (!effectiveCanDelete) return;
     setIsSubmitting(true);
     try {
       await onLiberarFolio(folio.id!, isRange && liberarTodoElRango);
@@ -139,6 +151,60 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
         {/* Content Details / Edit Mode */}
         {isEditing ? (
           <div className="space-y-3.5">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Carátula Oficial *
+                </label>
+                <input
+                  type="text"
+                  value={caratula}
+                  onChange={(e) => setCaratula(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-900 dark:text-white"
+                  placeholder="FOL-2026-0001"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tipo de Documento *
+                </label>
+                <input
+                  type="text"
+                  value={tipoDocumento}
+                  onChange={(e) => setTipoDocumento(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                  placeholder="Nota Oficial, Oficio, Memo..."
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Fecha de Registro
+                </label>
+                <input
+                  type="date"
+                  value={fecha}
+                  onChange={(e) => setFecha(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Hora
+                </label>
+                <input
+                  type="time"
+                  value={hora}
+                  onChange={(e) => setHora(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Asunto / Objeto *
@@ -148,42 +214,48 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
                 value={asunto}
                 onChange={(e) => setAsunto(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                placeholder="Detalle del trámite..."
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Destinatario / Organismo *
+                </label>
+                <input
+                  type="text"
+                  value={destinatario}
+                  onChange={(e) => setDestinatario(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                  placeholder="Organismo o autoridad..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Iniciador / Solicitante
+                </label>
+                <input
+                  type="text"
+                  value={solicitante}
+                  onChange={(e) => setSolicitante(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                  placeholder="Área u oficial..."
+                />
+              </div>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Destinatario / Organismo *
-              </label>
-              <input
-                type="text"
-                value={destinatario}
-                onChange={(e) => setDestinatario(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Iniciador / Solicitante
-              </label>
-              <input
-                type="text"
-                value={solicitante}
-                onChange={(e) => setSolicitante(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Observaciones
+                Observaciones Adicionales
               </label>
               <input
                 type="text"
                 value={observaciones}
                 onChange={(e) => setObservaciones(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                placeholder="Notas de archivo, número de copia, etc."
               />
             </div>
           </div>
@@ -221,17 +293,17 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
           </div>
         )}
 
-        {/* Liberar Folio Confirmation Panel */}
+        {/* Liberar / Eliminar Folio Confirmation Panel */}
         {showLiberarConfirm && (
           <div className="p-4 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-2xl space-y-3 animate-in fade-in">
             <div className="flex items-start gap-2.5">
               <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
               <div>
                 <span className="text-xs font-bold text-red-900 dark:text-red-200 block">
-                  ¿Confirmar Liberación de Folio?
+                  ¿Confirmar Eliminación / Liberación del Folio?
                 </span>
                 <p className="text-[11px] text-red-700 dark:text-red-300 mt-0.5">
-                  Esta acción eliminará el registro del trámite y el folio volverá inmediatamente a estar <strong>LIBRE / DISPONIBLE</strong> para una nueva asignación.
+                  Esta acción eliminará definitivamente el registro del trámite asignado a este folio y volverá inmediatamente a estar <strong>LIBRE / DISPONIBLE</strong> para una nueva asignación.
                 </p>
               </div>
             </div>
@@ -245,7 +317,7 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
                     onChange={(e) => setLiberarTodoElRango(e.target.checked)}
                     className="rounded border-red-300 text-red-600"
                   />
-                  <span>Liberar todo el bloque de folios ({folio.rangoInicio} al {folio.rangoFin})</span>
+                  <span>Eliminar / Liberar todo el bloque de folios ({folio.rangoInicio} al {folio.rangoFin})</span>
                 </label>
               </div>
             )}
@@ -264,7 +336,7 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
                 onClick={handleConfirmLiberar}
                 className="px-4 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-xs"
               >
-                {isSubmitting ? 'Liberando...' : 'Sí, Liberar Folio'}
+                {isSubmitting ? 'Eliminando...' : 'Sí, Eliminar / Liberar Folio'}
               </button>
             </div>
           </div>
@@ -273,14 +345,14 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
         {/* Footer Actions */}
         <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800">
           <div>
-            {!showLiberarConfirm && canDelete && (
+            {!showLiberarConfirm && effectiveCanDelete && (
               <button
                 type="button"
                 onClick={() => setShowLiberarConfirm(true)}
                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-xl transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
-                <span>Liberar Folio</span>
+                <span>Eliminar / Liberar Folio</span>
               </button>
             )}
           </div>
@@ -307,14 +379,16 @@ export const DetalleFolioModal: React.FC<DetalleFolioModalProps> = ({
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 rounded-xl transition-colors border border-blue-200 dark:border-blue-900"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  <span>Modificar Datos</span>
-                </button>
+                {perms.canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 rounded-xl transition-colors border border-blue-200 dark:border-blue-900"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Modificar Datos</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onClose}

@@ -21,6 +21,7 @@ import { PersonaInvestigada, Expediente } from '../../types/sgp';
 import { db, sgpManager } from '../../db/dexieDb';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { exportIndividualJson } from '../../utils/sgpBackupZip';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface PersonasModuleProps {
   personas?: PersonaInvestigada[];
@@ -37,6 +38,7 @@ export const PersonasModule: React.FC<PersonasModuleProps> = ({
   delegacionId,
   onNavigate
 }) => {
+  const perms = usePermissions();
   const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterScope, setFilterScope] = useState<'ALL' | 'LOCAL'>('ALL');
@@ -165,6 +167,7 @@ export const PersonasModule: React.FC<PersonasModuleProps> = ({
   }, [unifiedPersonas, filterScope, filterVinculacion, delegacionId, searchTerm]);
 
   const handleOpenNew = () => {
+    if (!perms.canCreate) return;
     setEditingPersona(null);
     setApellidoNombre('');
     setDni('');
@@ -173,6 +176,7 @@ export const PersonasModule: React.FC<PersonasModuleProps> = ({
   };
 
   const handleOpenEdit = (p: PersonaInvestigada) => {
+    if (p.id ? !perms.canEdit : !perms.canCreate) return;
     setEditingPersona(p);
     setApellidoNombre(p.apellidoNombre);
     setDni(p.dni);
@@ -182,6 +186,7 @@ export const PersonasModule: React.FC<PersonasModuleProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (editingPersona?.id ? !perms.canEdit : !perms.canCreate) return;
     if (!apellidoNombre.trim() || !dni.trim()) return;
 
     const cleanDni = dni.replace(/\D/g, '');
@@ -214,6 +219,7 @@ export const PersonasModule: React.FC<PersonasModuleProps> = ({
   };
 
   const handleDelete = async () => {
+    if (!perms.canDelete) return;
     if (deleteTargetId) {
       try {
         await db.personas.delete(deleteTargetId);
@@ -227,6 +233,7 @@ export const PersonasModule: React.FC<PersonasModuleProps> = ({
   };
 
   const handleExportCsv = () => {
+    if (!perms.canExport) return;
     const headers = ['DNI', 'Apellido y Nombre', 'Expedientes Vinculados', 'Fecha Registro', 'Observaciones / Rol'];
     const rows = filteredPersonas.map((p) => [
       `"${p.dni}"`,
@@ -296,31 +303,37 @@ export const PersonasModule: React.FC<PersonasModuleProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => exportIndividualJson('Personas', filteredPersonas)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
-            title="Exportar archivo JSON"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>JSON</span>
-          </button>
+          {perms.canExport && (
+            <>
+              <button
+                onClick={() => exportIndividualJson('Personas', filteredPersonas)}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
+                title="Exportar archivo JSON"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>JSON</span>
+              </button>
 
-          <button
-            onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
-            title="Exportar archivo CSV para Excel"
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>CSV / Excel</span>
-          </button>
+              <button
+                onClick={handleExportCsv}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
+                title="Exportar archivo CSV para Excel"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>CSV / Excel</span>
+              </button>
+            </>
+          )}
 
-          <button
-            onClick={handleOpenNew}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nueva Persona</span>
-          </button>
+          {perms.canCreate && (
+            <button
+              onClick={handleOpenNew}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nueva Persona</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -456,19 +469,23 @@ export const PersonasModule: React.FC<PersonasModuleProps> = ({
                       {p.observaciones || '-'}
                     </td>
                     <td className="py-3 px-4 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => handleOpenEdit(p)}
-                        className="text-xs text-blue-600 hover:text-blue-800 font-semibold mr-3"
-                      >
-                        {p.id ? 'Editar' : 'Registrar'}
-                      </button>
-                      {p.id ? (
+                      {(p.id ? perms.canEdit : perms.canCreate) && (
                         <button
-                          onClick={() => setDeleteTargetId(p.id!)}
-                          className="text-xs text-rose-500 hover:text-rose-700 font-semibold"
+                          onClick={() => handleOpenEdit(p)}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-semibold mr-3"
                         >
-                          Eliminar
+                          {p.id ? 'Editar' : 'Registrar'}
                         </button>
+                      )}
+                      {p.id ? (
+                        perms.canDelete && (
+                          <button
+                            onClick={() => setDeleteTargetId(p.id!)}
+                            className="text-xs text-rose-500 hover:text-rose-700 font-semibold"
+                          >
+                            Eliminar
+                          </button>
+                        )
                       ) : (
                         <span className="text-[10px] text-slate-400 italic">En Evidencia</span>
                       )}

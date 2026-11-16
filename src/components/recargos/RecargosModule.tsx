@@ -21,6 +21,7 @@ import { exportIndividualJson } from '../../utils/sgpBackupZip';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { PdfPreviewModal } from '../common/PdfPreviewModal';
 import { sgpManager } from '../../db/dexieDb';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface RecargosModuleProps {
   recargos: Recargo[];
@@ -43,6 +44,7 @@ export const RecargosModule: React.FC<RecargosModuleProps> = ({
   onNavigate,
   onRefresh
 }) => {
+  const perms = usePermissions();
   const [viewMode, setViewMode] = useState<RecargosViewMode>('cards');
   const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -78,6 +80,7 @@ export const RecargosModule: React.FC<RecargosModuleProps> = ({
     paperSize: SgpPaperSize = 'a4',
     orientation: SgpOrientation = 'portrait'
   ) => {
+    if (!perms.canExport) return;
     const doc = generateRecargoPlanillaDoc(institutionalConfig, rec, { paperSize, orientation });
     const blob = doc.output('blob');
     setPdfPreviewBlob({
@@ -178,6 +181,7 @@ export const RecargosModule: React.FC<RecargosModuleProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!perms.canCreate) return;
     const person = personalList.find((p) => p.id === Number(personalId));
     if (!person) return;
 
@@ -203,6 +207,7 @@ export const RecargosModule: React.FC<RecargosModuleProps> = ({
   };
 
   const handleDelete = async () => {
+    if (!perms.canDelete) return;
     if (deleteTargetId) {
       const db = (await import('../../db/dexieDb')).db;
       await db.recargos.delete(deleteTargetId);
@@ -227,24 +232,28 @@ export const RecargosModule: React.FC<RecargosModuleProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => exportIndividualJson('Recargos', recargos)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Exportar JSON</span>
-          </button>
+          {perms.canExport && (
+            <button
+              onClick={() => exportIndividualJson('Recargos', recargos)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Exportar JSON</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              setTipoRecargo(tiposRecargo[0] || 'Seguridad en Cancha / Evento');
-              setIsFormOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Programar Recargo</span>
-          </button>
+          {perms.canCreate && (
+            <button
+              onClick={() => {
+                setTipoRecargo(tiposRecargo[0] || 'Seguridad en Cancha / Evento');
+                setIsFormOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Programar Recargo</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -421,23 +430,31 @@ export const RecargosModule: React.FC<RecargosModuleProps> = ({
                 )}
               </div>
 
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <button
-                  onClick={() => handleOpenPlanillaPdf(rec)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 rounded-lg transition-colors"
-                  title="Abrir vista preliminar de planilla de recargo"
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Planilla PDF</span>
-                </button>
+              {(perms.canExport || perms.canDelete) && (
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  {perms.canExport ? (
+                    <button
+                      onClick={() => handleOpenPlanillaPdf(rec)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 rounded-lg transition-colors"
+                      title="Abrir vista preliminar de planilla de recargo"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Planilla PDF</span>
+                    </button>
+                  ) : (
+                    <span />
+                  )}
 
-                <button
-                  onClick={() => rec.id && setDeleteTargetId(rec.id)}
-                  className="p-1.5 text-slate-400 hover:text-rose-600"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+                  {perms.canDelete && (
+                    <button
+                      onClick={() => rec.id && setDeleteTargetId(rec.id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -518,19 +535,26 @@ export const RecargosModule: React.FC<RecargosModuleProps> = ({
                       {rec.observaciones || '-'}
                     </td>
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => handleOpenPlanillaPdf(rec)}
-                        className="text-xs text-blue-600 hover:text-blue-800 font-semibold mr-2"
-                        title="Abrir vista preliminar de planilla de recargo"
-                      >
-                        Planilla PDF
-                      </button>
-                      <button
-                        onClick={() => rec.id && setDeleteTargetId(rec.id)}
-                        className="text-xs text-rose-500 hover:text-rose-700"
-                      >
-                        Eliminar
-                      </button>
+                      {perms.canExport && (
+                        <button
+                          onClick={() => handleOpenPlanillaPdf(rec)}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-semibold mr-2"
+                          title="Abrir vista preliminar de planilla de recargo"
+                        >
+                          Planilla PDF
+                        </button>
+                      )}
+                      {perms.canDelete && (
+                        <button
+                          onClick={() => rec.id && setDeleteTargetId(rec.id)}
+                          className="text-xs text-rose-500 hover:text-rose-700"
+                        >
+                          Eliminar
+                        </button>
+                      )}
+                      {!perms.canExport && !perms.canDelete && (
+                        <span className="text-[11px] text-slate-400">-</span>
+                      )}
                     </td>
                   </tr>
                 ))}

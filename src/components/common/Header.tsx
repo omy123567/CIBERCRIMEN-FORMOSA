@@ -16,11 +16,19 @@ import {
   ShieldCheck,
   RefreshCw,
   Wifi,
-  WifiOff
+  WifiOff,
+  Bell,
+  BellRing,
+  Calendar,
+  MapPin,
+  Check,
+  ExternalLink
 } from 'lucide-react';
-import { InstitutionalConfig, SisPolUser, SisPolDelegacion } from '../../types/sgp';
+import { InstitutionalConfig, SisPolUser, SisPolDelegacion, Charla } from '../../types/sgp';
 import { syncWithServer } from '../../db/dexieDb';
+import { resolveUserPermissions } from '../../context/PermissionsContext';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
+import { getUpcomingCharlasReminders } from '../../utils/charlaReminders';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -35,6 +43,8 @@ interface HeaderProps {
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
   onOpenModuleAdmin?: () => void;
+  charlas?: Charla[];
+  onNavigate?: (module: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -49,10 +59,27 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   isDarkMode,
   onToggleDarkMode,
-  onOpenModuleAdmin
+  onOpenModuleAdmin,
+  charlas = [],
+  onNavigate
 }) => {
   const [currentDateTime, setCurrentDateTime] = useState('');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notifMenuOpen, setNotifMenuOpen] = useState(false);
+  const [dismissedKeys, setDismissedKeys] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sispol_dismissed_charla_reminders');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [browserNotifPerm, setBrowserNotifPerm] = useState<string>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'unsupported';
+  });
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
@@ -127,6 +154,35 @@ export const Header: React.FC<HeaderProps> = ({
     currentUser.rol === 'superusuario'
       ? delegaciones
       : delegaciones.filter((d) => (currentUser.allowedDelegacionIds || [currentUser.delegacionId]).includes(d.id!));
+
+  const perms = resolveUserPermissions(currentUser);
+
+  const upcomingReminders = getUpcomingCharlasReminders(charlas, 14);
+  const unreadReminders = upcomingReminders.filter((r) => !dismissedKeys.includes(r.key));
+  const hasUrgentUnread = unreadReminders.some((r) => r.status === 'today' || r.status === 'tomorrow');
+
+  const handleDismissOne = (key: string) => {
+    const next = Array.from(new Set([...dismissedKeys, key]));
+    setDismissedKeys(next);
+    localStorage.setItem('sispol_dismissed_charla_reminders', JSON.stringify(next));
+  };
+
+  const handleDismissAll = () => {
+    const next = Array.from(new Set([...dismissedKeys, ...upcomingReminders.map((r) => r.key)]));
+    setDismissedKeys(next);
+    localStorage.setItem('sispol_dismissed_charla_reminders', JSON.stringify(next));
+  };
+
+  const handleRequestBrowserNotif = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const result = await Notification.requestPermission();
+        setBrowserNotifPerm(result);
+      } catch {
+        // ignore
+      }
+    }
+  };
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between gap-4 px-4 sm:px-6 py-2.5 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white shadow-xs">
@@ -235,6 +291,146 @@ export const Header: React.FC<HeaderProps> = ({
           />
         </button>
 
+        {/* Notification Bell for Charlas & Prevention Events */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              setNotifMenuOpen(!notifMenuOpen);
+              setUserMenuOpen(false);
+            }}
+            className={`relative p-2 rounded-xl transition-colors border ${
+              unreadReminders.length > 0
+                ? 'bg-amber-950/50 text-amber-300 border-amber-600/60 hover:bg-amber-900/60'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800 border-slate-700/60'
+            }`}
+            title={
+              upcomingReminders.length > 0
+                ? `${upcomingReminders.length} recordatorio(s) de Charlas próximas`
+                : 'Notificaciones y recordatorios de Charlas'
+            }
+          >
+            {hasUrgentUnread ? (
+              <BellRing className="w-4 h-4 text-amber-400 animate-pulse" />
+            ) : (
+              <Bell className="w-4 h-4" />
+            )}
+            {unreadReminders.length > 0 && (
+              <span
+                className={`absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black flex items-center justify-center shadow-sm ${
+                  hasUrgentUnread ? 'bg-rose-600 text-white' : 'bg-blue-600 text-white'
+                }`}
+              >
+                {unreadReminders.length}
+              </span>
+            )}
+          </button>
+
+          {notifMenuOpen && (
+            <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl z-50 overflow-hidden text-xs">
+              <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
+                <div className="flex items-center gap-2">
+                  <BellRing className="w-4 h-4 text-amber-400" />
+                  <span className="font-bold text-white">Recordatorios de Charlas</span>
+                </div>
+                {unreadReminders.length > 0 && (
+                  <button
+                    onClick={handleDismissAll}
+                    className="text-[11px] font-semibold text-blue-400 hover:text-blue-300"
+                  >
+                    Marcar todo visto
+                  </button>
+                )}
+              </div>
+
+              <div className="max-h-80 overflow-y-auto divide-y divide-slate-800">
+                {upcomingReminders.length === 0 ? (
+                  <div className="p-5 text-center text-slate-400 text-xs">
+                    No hay charlas programadas para hoy ni los próximos 14 días.
+                  </div>
+                ) : (
+                  upcomingReminders.map((item) => {
+                    const isRead = dismissedKeys.includes(item.key);
+                    const ch = item.charla;
+                    const badgeCls =
+                      item.status === 'today'
+                        ? 'bg-rose-600 text-white'
+                        : item.status === 'tomorrow'
+                        ? 'bg-amber-500 text-slate-950'
+                        : 'bg-blue-600/30 text-blue-300 border border-blue-500/40';
+
+                    return (
+                      <div
+                        key={item.key}
+                        className={`p-3.5 space-y-1.5 transition-colors ${
+                          isRead ? 'opacity-60 bg-slate-900' : 'bg-slate-800/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full font-mono ${badgeCls}`}>
+                            {item.label}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono text-blue-300 flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              {ch.fecha}{ch.hora ? ` • ${ch.hora} hs` : ''}
+                            </span>
+                            {!isRead && (
+                              <button
+                                onClick={() => handleDismissOne(item.key)}
+                                className="p-1 text-slate-400 hover:text-emerald-400 rounded"
+                                title="Marcar como visto"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="font-bold text-white text-xs leading-snug">
+                          {ch.temaTratado}
+                        </div>
+                        <div className="text-[11px] text-slate-300 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate">{ch.lugarInstitucion} ({ch.localidad})</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          Disertante: {ch.personalDesignado || '-'}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="px-4 py-2.5 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between gap-2">
+                {browserNotifPerm === 'default' ? (
+                  <button
+                    onClick={handleRequestBrowserNotif}
+                    className="text-[11px] text-amber-300 hover:text-amber-200 font-semibold"
+                  >
+                    Activar avisos del navegador
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-slate-500">
+                    {browserNotifPerm === 'granted' ? 'Avisos del navegador activos' : 'Recordatorios en panel'}
+                  </span>
+                )}
+                {onNavigate && (
+                  <button
+                    onClick={() => {
+                      setNotifMenuOpen(false);
+                      onNavigate('charlas');
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-400 hover:text-blue-300"
+                  >
+                    <span>Ir a Charlas</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Dark/Light mode toggle */}
         <button
           onClick={onToggleDarkMode}
@@ -246,6 +442,18 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* PWA Multi-Platform Install Button */}
         <PWAInstallButton />
+
+        {/* Quick Admin Modules Button */}
+        {perms.canAdminModules && onOpenModuleAdmin && (
+          <button
+            onClick={onOpenModuleAdmin}
+            className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-amber-300 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-600/40 rounded-xl shadow-xs transition-colors whitespace-nowrap shrink-0"
+            title="Personalizar orden, nombres y carpetas de módulos"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+            <span>Personalizar Módulos</span>
+          </button>
+        )}
 
         {/* Quick New Case */}
         {onOpenQuickNew && (
@@ -286,14 +494,18 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="p-2.5 border-b border-slate-800">
                 <div className="font-bold text-white text-xs">{currentUser.nombreApellido}</div>
                 <div className="text-[11px] text-slate-400 truncate">{currentUser.email}</div>
-                <div className="mt-1 flex items-center gap-1.5">
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-blue-600/30 text-blue-400 border border-blue-500/30">
                     Rol: {currentUser.rol}
                   </span>
-                  {currentUser.canDelete ? (
-                    <span className="text-[9px] text-emerald-400 font-semibold">• Permiso Borrado</span>
+                  {perms.readOnly ? (
+                    <span className="text-[9px] text-amber-300 font-semibold">• Solo Lectura</span>
                   ) : (
-                    <span className="text-[9px] text-slate-500 font-semibold">• Sin Borrado</span>
+                    <>
+                      {perms.canCreate && <span className="text-[9px] text-emerald-400 font-semibold">• Carga</span>}
+                      {perms.canEdit && <span className="text-[9px] text-sky-400 font-semibold">• Edición</span>}
+                      {perms.canDelete && <span className="text-[9px] text-rose-400 font-semibold">• Borrado</span>}
+                    </>
                   )}
                 </div>
 
@@ -332,13 +544,13 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {/* Action: Admin Modules if authorized */}
-              {(currentUser.rol === 'superusuario' || currentUser.canAdminModules) && onOpenModuleAdmin && (
+              {perms.canAdminModules && onOpenModuleAdmin && (
                 <button
                   onClick={onOpenModuleAdmin}
                   className="w-full flex items-center gap-2 px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition-colors text-left"
                 >
                   <SlidersHorizontal className="w-4 h-4 text-amber-400" />
-                  <span>Administrador de Módulos</span>
+                  <span>Personalizar Módulos y Carpetas</span>
                 </button>
               )}
 

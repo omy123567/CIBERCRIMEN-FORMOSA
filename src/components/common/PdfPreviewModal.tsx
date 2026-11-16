@@ -10,6 +10,7 @@ import {
   RotateCcw,
   AlertCircle
 } from 'lucide-react';
+import { saveAs } from 'file-saver';
 
 export type SgpPaperSize = 'a4' | 'legal' | 'letter';
 export type SgpOrientation = 'portrait' | 'landscape';
@@ -107,6 +108,12 @@ export const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
   const handleDownload = () => {
     const cleanFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
     if (pdfBlob) {
+      try {
+        saveAs(pdfBlob, cleanFilename);
+        return;
+      } catch {
+        // Fallback to link click
+      }
       const downloadUrl = URL.createObjectURL(pdfBlob);
       const a = document.createElement('a');
       a.style.display = 'none';
@@ -139,13 +146,23 @@ export const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
   };
 
   const handleOpenNewTab = () => {
-    if (pdfBlob) {
-      const tabUrl = URL.createObjectURL(pdfBlob);
-      window.open(tabUrl, '_blank');
-      return;
-    }
-    if (resolvedSource) {
-      window.open(resolvedSource, '_blank');
+    try {
+      if (pdfBlob) {
+        const tabUrl = URL.createObjectURL(pdfBlob);
+        const win = window.open(tabUrl, '_blank');
+        if (!win) {
+          handleDownload();
+        }
+        return;
+      }
+      if (resolvedSource) {
+        const win = window.open(resolvedSource, '_blank');
+        if (!win) {
+          handleDownload();
+        }
+      }
+    } catch {
+      handleDownload();
     }
   };
 

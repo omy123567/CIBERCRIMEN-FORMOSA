@@ -19,6 +19,7 @@ export type SgpOrientation = 'portrait' | 'landscape';
 export interface SgpPdfOptions {
   paperSize?: SgpPaperSize;
   orientation?: SgpOrientation;
+  visibleColumns?: Record<string, boolean>;
 }
 
 export interface PersonalRosterOptions extends SgpPdfOptions {
@@ -448,28 +449,48 @@ export function generateExpedientesLogbookDoc(
       tarea = 'En trámite';
     }
 
-    return [
-      expAnio,
-      fecha,
-      oficioTexto,
-      juzgado,
-      dependencia,
-      tipoReq,
-      resumen,
-      tarea
+    const allCols: { key: string; header: string; val: string }[] = [
+      { key: 'expediente', header: 'Expediente/Año', val: expAnio },
+      { key: 'fecha', header: 'Fecha', val: fecha },
+      { key: 'oficio', header: 'Oficio/Año/Letra', val: oficioTexto },
+      { key: 'juzgado', header: 'Juzgado', val: juzgado },
+      { key: 'dependencia', header: 'Dependencia', val: dependencia },
+      { key: 'tipoReq', header: 'Tipo Req.', val: tipoReq },
+      { key: 'resumen', header: 'Resumen', val: resumen },
+      { key: 'tarea', header: 'Tarea realizada', val: tarea }
     ];
+
+    const activeCols = options?.visibleColumns
+      ? allCols.filter(c => options.visibleColumns![c.key] !== false)
+      : allCols;
+
+    return activeCols.map(c => c.val);
   });
 
   const isPortrait = orientation === 'portrait';
 
+  const defaultColHeaders = [
+    { key: 'expediente', header: 'Expediente/Año' },
+    { key: 'fecha', header: 'Fecha' },
+    { key: 'oficio', header: 'Oficio/Año/Letra' },
+    { key: 'juzgado', header: 'Juzgado' },
+    { key: 'dependencia', header: 'Dependencia' },
+    { key: 'tipoReq', header: 'Tipo Req.' },
+    { key: 'resumen', header: 'Resumen' },
+    { key: 'tarea', header: 'Tarea realizada' }
+  ];
+
+  const finalHeaders = (options?.visibleColumns
+    ? defaultColHeaders.filter(c => options.visibleColumns![c.key] !== false)
+    : defaultColHeaders
+  ).map(c => c.header);
+
   autoTable(doc, {
     startY,
-    head: [
-      ['Expediente/Año', 'Fecha', 'Oficio/Año/Letra', 'Juzgado', 'Dependencia', 'Tipo Req.', 'Resumen', 'Tarea realizada']
-    ],
+    head: [finalHeaders.length > 0 ? finalHeaders : ['Expediente/Año', 'Resumen']],
     body: rows.length > 0
       ? rows
-      : [['-', '-', '-', '-', '-', '-', 'Sin expedientes registrados en el período', '-']],
+      : [[...finalHeaders.map(() => '-')]],
     theme: 'grid',
     headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 7, fontStyle: 'bold' },
     styles: { fontSize: isPortrait ? 5.5 : 6.5, cellPadding: isPortrait ? 1.5 : 2, overflow: 'linebreak' },
@@ -577,6 +598,7 @@ export function generatePersonalRosterDoc(
           safeText(p.jerarquia, '-'),
           safeText(p.apellidoNombre, '-'),
           safeText(p.dni, '-'),
+          safeText(custom.cedulaProvincial || p.cedulaProvincial, '-'),
           safeText(p.fechaIngreso, '-'),
           `${calculateAntiguedad(p.fechaIngreso)} años`,
           p.disponible ? 'ACTIVO' : `LICENCIA (${p.motivoNoDisponible || '-'})`,
@@ -587,7 +609,7 @@ export function generatePersonalRosterDoc(
 
       autoTable(doc, {
         startY: currentY,
-        head: [['#', 'Plaza', 'Jerarquía', 'Apellido y Nombre', 'DNI', 'Ingreso', 'Antigüedad', 'Situación', 'Armamento', 'Teléfono']],
+        head: [['#', 'Plaza', 'Jerarquía', 'Apellido y Nombre', 'DNI', 'Céd. Prov.', 'Ingreso', 'Antigüedad', 'Situación', 'Armamento', 'Teléfono']],
         body: groupRows,
         theme: 'grid',
         headStyles: { fillColor: [51, 65, 85], textColor: 255, fontSize: 7, fontStyle: 'bold' },
@@ -614,6 +636,7 @@ export function generatePersonalRosterDoc(
         safeText(p.jerarquia, '-'),
         safeText(p.apellidoNombre, '-'),
         safeText(p.dni, '-'),
+        safeText(custom.cedulaProvincial || p.cedulaProvincial, '-'),
         safeText(p.grupo, '-'),
         safeText(p.fechaIngreso, '-'),
         `${calculateAntiguedad(p.fechaIngreso)} años`,
@@ -625,13 +648,13 @@ export function generatePersonalRosterDoc(
 
     autoTable(doc, {
       startY,
-      head: [['#', 'Plaza', 'Jerarquía', 'Apellido y Nombre', 'DNI', 'Grupo / Guardia', 'Ingreso', 'Antigüedad', 'Situación', 'Armamento', 'Teléfono']],
+      head: [['#', 'Plaza', 'Jerarquía', 'Apellido y Nombre', 'DNI', 'Céd. Prov.', 'Grupo / Guardia', 'Ingreso', 'Antigüedad', 'Situación', 'Armamento', 'Teléfono']],
       body: tableData.length > 0
         ? tableData
-        : [['-', '-', '-', 'Sin personal policial registrado', '-', '-', '-', '-', '-', '-', '-']],
+        : [['-', '-', '-', 'Sin personal policial registrado', '-', '-', '-', '-', '-', '-', '-', '-']],
       theme: 'grid',
       headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 7.5 },
-      styles: { fontSize: 6.8, cellPadding: 2 }
+      styles: { fontSize: 6.5, cellPadding: 1.8 }
     });
 
     drawSgpSignatureBlock(doc, config, (doc as any).lastAutoTable?.finalY || startY + 20);
@@ -670,11 +693,13 @@ export function generateFichaPersonalDoc(
     // ignore
   }
 
+  const cedulaProv = custom.cedulaProvincial || personal.cedulaProvincial || '-';
+
   const startY = drawSgpHeader(
     doc,
     config,
     'FICHA DE LEGAJO INDIVIDUAL Y HOJA DE SERVICIO POLICIAL',
-    `Efectivo: ${personal.jerarquia} ${personal.apellidoNombre} • Plaza N°: ${personal.plaza} • DNI: ${personal.dni}`
+    `Efectivo: ${personal.jerarquia} ${personal.apellidoNombre} • Plaza N°: ${personal.plaza} • DNI: ${personal.dni} • Céd. Prov.: ${cedulaProv}`
   );
 
   // Photo Frame (top right below header)
@@ -705,6 +730,7 @@ export function generateFichaPersonalDoc(
     body: [
       ['Apellido y Nombres', personal.apellidoNombre],
       ['D.N.I. N°', personal.dni],
+      ['N° Cédula Provincial', cedulaProv],
       ['Fecha de Nacimiento', `${personal.fechaNacimiento || '-'} (${edad})`],
       ['Sexo / Estado Civil', `${custom.sexo || '-'} • ${custom.estadoCivil || '-'}`],
       ['Domicilio Real', `${custom.domicilio || '-'} - ${custom.localidad || '-'}`],
@@ -874,8 +900,9 @@ export function generateFichaFormularioBlancoDoc(
       ['Apellido(s)', '.........................................................................................................'],
       ['Nombre(s)', '.........................................................................................................'],
       ['D.N.I. N°', '................................................   Sexo:  [  ] M     [  ] F     [  ] Otro'],
-      ['C.U.I.L. N°', '................................................   Grupo Sanguíneo: ........................'],
-      ['Fecha Nacimiento', '........ / ........ / .............   Edad: ..........   Est. Civil: ........................'],
+      ['N° Cédula Provincial', '................................................   C.U.I.L. N°: ...............................'],
+      ['Grupo Sanguíneo', '................................................   Est. Civil: ...............................'],
+      ['Fecha Nacimiento', '........ / ........ / .............   Edad: ..........   Nacionalidad: ......................'],
       ['Domicilio Real', '.........................................................................................................'],
       ['Localidad / Barrio', '.........................................................................................................'],
       ['Teléfono Personal', '................................................   E-mail: .......................................'],
@@ -1439,18 +1466,18 @@ export function generateCharlasDoc(
   const rows = list.map((c, i) => [
     (i + 1).toString(),
     safeText(c.fecha, '-'),
+    safeText(c.hora ? `${c.hora} hs` : '-', '-'),
     safeText(c.localidad, '-'),
     safeText(c.lugarInstitucion, '-'),
     safeText(c.temaTratado, '-'),
     safeText(c.personalDesignado, '-'),
-    `${c.cantidadAsistentes ?? 0} pers.`,
     safeText(c.observaciones, '-')
   ]);
 
   autoTable(doc, {
     startY,
-    head: [['#', 'Fecha', 'Localidad', 'Institución / Lugar', 'Temática Abordada', 'Disertante a Cargo', 'Asistentes', 'Observaciones']],
-    body: rows.length > 0 ? rows : [['-', '-', '-', 'Sin actividades registradas', '-', '-', '-', '-']],
+    head: [['#', 'Fecha', 'Hora', 'Localidad', 'Lugar / Institución', 'Tema', 'Disertante Designado', 'Observaciones']],
+    body: rows.length > 0 ? rows : [['-', '-', '-', '-', 'Sin actividades registradas', '-', '-', '-']],
     theme: 'grid',
     headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 7.5 },
     styles: { fontSize: 7, cellPadding: 2 }
@@ -1566,3 +1593,237 @@ export function exportCuatrienioLicenciasPDF(
   const doc = generateCuatrienioDoc(config, personal, cuatrienio, licencias, options);
   doc.save(`SGP_Cuatrienio_${(personal.apellidoNombre || 'Personal').replace(/[^a-zA-Z]/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+
+/* =========================================================================================
+   10. TAREAS REALIZADAS Y AUDITORÍA OPERATIVA CONSOLIDADAS
+   ========================================================================================= */
+
+export interface TareasReportItem {
+  fecha: string;
+  submodulo: string;
+  referencia: string;
+  titulo: string;
+  descripcion: string;
+  personalResponsable: string;
+  destinoOrganismo: string;
+  magnitud?: string;
+}
+
+export interface TareasReportStats {
+  total: number;
+  peritajes: number;
+  charlas: number;
+  totalAsistentes: number;
+  requerimientosElevados?: number;
+  ppi?: number;
+  recargos?: number;
+  moviles?: number;
+  folios?: number;
+  totalHorasRecargo?: number;
+  totalCostoReparaciones?: number;
+}
+
+export function generateTareasRealizadasReportDoc(
+  config?: InstitutionalConfig,
+  tasks: TareasReportItem[] = [],
+  stats?: Partial<TareasReportStats>,
+  periodLabel: string = 'Período Completo',
+  options?: SgpPdfOptions
+): jsPDF {
+  const paperSize = options?.paperSize || 'a4';
+  const orientation = options?.orientation || 'landscape';
+  const doc = new jsPDF(orientation, 'mm', paperSize);
+
+  const pageWidth = orientation === 'landscape' ? 297 : 210;
+  const pageHeight = orientation === 'landscape' ? 210 : 297;
+
+  const st: TareasReportStats = {
+    total: stats?.total ?? tasks.length,
+    peritajes: stats?.peritajes ?? 0,
+    charlas: stats?.charlas ?? 0,
+    totalAsistentes: stats?.totalAsistentes ?? 0,
+    requerimientosElevados: stats?.requerimientosElevados ?? 0
+  };
+
+  const startY = drawSgpHeader(
+    doc,
+    config,
+    'INFORME OFICIAL DE TAREAS REALIZADAS',
+    `Tipo de Requerimiento & Charlas de Prevención • ${periodLabel} • Emisión: ${new Date().toLocaleDateString('es-AR')} ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs`
+  );
+
+  // Executive KPI summary cards (drawn with rounded rectangles)
+  const cardY = startY + 2;
+  const cardWidth = (pageWidth - 28 - 15) / 4;
+  const cardHeight = 15;
+
+  const kpis = [
+    { title: 'TOTAL TAREAS', val: st.total.toString(), desc: 'Tareas diligenciadas', fill: [30, 58, 138] },
+    { title: 'TIPOS DE REQUERIMIENTO', val: st.peritajes.toString(), desc: `${st.requerimientosElevados || 0} con elevación judicial`, fill: [14, 116, 144] },
+    { title: 'CHARLAS PREVENTIVAS', val: st.charlas.toString(), desc: 'Jornadas comunitarias', fill: [79, 70, 229] },
+    { title: 'REQUERIMIENTOS ELEVADOS', val: `${st.requerimientosElevados || 0}`, desc: 'Diligenciados / concluidos', fill: [15, 118, 110] }
+  ];
+
+  kpis.forEach((kpi, idx) => {
+    const x = 14 + idx * (cardWidth + 5);
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(x, cardY, cardWidth, cardHeight, 2, 2, 'FD');
+
+    // Accent line on left
+    doc.setFillColor(kpi.fill[0], kpi.fill[1], kpi.fill[2]);
+    doc.roundedRect(x, cardY, 2.5, cardHeight, 1, 1, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(kpi.title, x + 5, cardY + 4.5);
+
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(kpi.val, x + 5, cardY + 9.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text(kpi.desc, x + 5, cardY + 13);
+  });
+
+  // Vector Distribution Chart (Percentage Bars)
+  const chartY = cardY + cardHeight + 4;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(30, 58, 138);
+  doc.text('DISTRIBUCIÓN OPERATIVA DE TAREAS (TIPO DE REQUERIMIENTO vs CHARLAS):', 14, chartY + 2);
+
+  const submodDist = [
+    { name: 'Tipo de Requerimiento', count: st.peritajes, color: [14, 116, 144] },
+    { name: 'Charlas de Prevención', count: st.charlas, color: [79, 70, 229] }
+  ];
+
+  const totalCount = Math.max(st.total, 1);
+  const barStartX = 14;
+  const barTotalWidth = pageWidth - 28;
+  const barY = chartY + 4;
+  const barH = 5;
+
+  let accX = barStartX;
+  submodDist.forEach(s => {
+    const fraction = s.count / totalCount;
+    const w = fraction * barTotalWidth;
+    if (w > 0.5) {
+      doc.setFillColor(s.color[0], s.color[1], s.color[2]);
+      doc.rect(accX, barY, w, barH, 'F');
+      accX += w;
+    }
+  });
+
+  // Chart Legend
+  const legendY = barY + barH + 3;
+  let legX = 14;
+  submodDist.forEach(s => {
+    const pct = ((s.count / totalCount) * 100).toFixed(0);
+    doc.setFillColor(s.color[0], s.color[1], s.color[2]);
+    doc.rect(legX, legendY - 2.5, 3, 3, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(71, 85, 105);
+    const label = `${s.name}: ${s.count} (${pct}%)`;
+    doc.text(label, legX + 4.5, legendY);
+    legX += doc.getTextWidth(label) + 12;
+  });
+
+  // Table of Tasks
+  const tableStartY = legendY + 5;
+
+  const defaultTareaCols = [
+    { key: 'fecha', header: 'Fecha' },
+    { key: 'submodulo', header: 'Categoría' },
+    { key: 'referencia', header: 'Identificador / Causa' },
+    { key: 'titulo', header: 'Requerimiento / Asunto / Tema' },
+    { key: 'personalResponsable', header: 'Efectivo Responsable' },
+    { key: 'destinoOrganismo', header: 'Destino / Juzgado' },
+    { key: 'magnitud', header: 'Estado / Horario' }
+  ];
+
+  const activeHeaders = (options?.visibleColumns
+    ? defaultTareaCols.filter(c => options.visibleColumns![c.key] !== false)
+    : defaultTareaCols
+  ).map(c => c.header);
+
+  const tableBody = tasks.length > 0
+    ? tasks.map(t => {
+        const itemCols = [
+          { key: 'fecha', val: safeText(t.fecha, '-') },
+          { key: 'submodulo', val: safeText(t.submodulo, '-') },
+          { key: 'referencia', val: safeText(t.referencia, '-') },
+          { key: 'titulo', val: safeText(t.titulo, '-') },
+          { key: 'personalResponsable', val: safeText(t.personalResponsable, '-') },
+          { key: 'destinoOrganismo', val: safeText(t.destinoOrganismo, '-') },
+          { key: 'magnitud', val: safeText(t.magnitud, '-') }
+        ];
+        return (options?.visibleColumns
+          ? itemCols.filter(c => options.visibleColumns![c.key] !== false)
+          : itemCols
+        ).map(c => c.val);
+      })
+    : [[...activeHeaders.map(() => '-')]];
+
+  autoTable(doc, {
+    startY: tableStartY,
+    head: [activeHeaders.length > 0 ? activeHeaders : ['Fecha', 'Tarea']],
+    body: tableBody,
+    theme: 'grid',
+    headStyles: {
+      fillColor: [30, 58, 138],
+      textColor: 255,
+      fontSize: 7.5,
+      fontStyle: 'bold',
+      halign: 'left'
+    },
+    styles: {
+      fontSize: 6.8,
+      cellPadding: 2,
+      overflow: 'linebreak',
+      textColor: [30, 41, 59]
+    },
+    columnStyles: {
+      0: { cellWidth: 20, halign: 'center' },
+      1: { cellWidth: 34 },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 'auto' },
+      4: { cellWidth: 36 },
+      5: { cellWidth: 36 },
+      6: { cellWidth: 26, halign: 'center' }
+    },
+    didDrawPage: (data) => {
+      // Bottom footer pagination on each page
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        `Sistema Integral de Seguridad y Delitos Informáticos Complejos (S.I.S.D.I.C.) • Página ${data.pageNumber} de ${doc.getNumberOfPages()}`,
+        pageWidth / 2,
+        pageHeight - 5,
+        { align: 'center' }
+      );
+    }
+  });
+
+  const finalY = (doc as any).lastAutoTable?.finalY || tableStartY + 50;
+  drawSgpSignatureBlock(doc, config, finalY + 8);
+
+  return doc;
+}
+
+export function exportTareasRealizadasReportPDF(
+  config?: InstitutionalConfig,
+  tasks: TareasReportItem[] = [],
+  stats?: Partial<TareasReportStats>,
+  periodLabel: string = 'Período Completo',
+  options?: SgpPdfOptions
+) {
+  const doc = generateTareasRealizadasReportDoc(config, tasks, stats, periodLabel, options);
+  doc.save(`SGP_Tareas_Realizadas_${periodLabel.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+

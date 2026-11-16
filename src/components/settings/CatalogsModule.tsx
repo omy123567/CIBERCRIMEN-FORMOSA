@@ -3,6 +3,7 @@ import { Settings, Plus, Trash2, Tag, Shield, Search, Filter, Archive } from 'lu
 import { DynamicCatalog, InstitutionalConfig } from '../../types/sgp';
 import { sgpManager, db } from '../../db/dexieDb';
 import { MembreteEditorModule } from './MembreteEditorModule';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface CatalogsModuleProps {
   catalogs: DynamicCatalog[];
@@ -38,6 +39,7 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
   onNavigate,
   onRefresh
 }) => {
+  const perms = usePermissions();
   const [activeTab, setActiveTab] = useState<'catalogos' | 'membrete'>('catalogos');
   const [activeCategory, setActiveCategory] = useState<string>('Juzgado');
   const [newValue, setNewValue] = useState('');
@@ -57,6 +59,7 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!perms.canCreate) return;
     if (!newValue.trim()) return;
 
     // Save as globally shared catalog item
@@ -71,6 +74,7 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
   };
 
   const handleDeleteItem = async (id?: number) => {
+    if (!perms.canDelete) return;
     if (!id) return;
     await db.dynamicCatalogs.delete(id);
     sgpManager.notify();
@@ -184,22 +188,24 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
           </div>
 
           {/* Add item input */}
-          <form onSubmit={handleAddItem} className="flex gap-2">
-            <input
-              type="text"
-              value={newValue}
-              onChange={(e) => setNewValue(e.target.value)}
-              placeholder={`Agregar nuevo elemento al catálogo "${activeCategory}"...`}
-              className="flex-1 px-4 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Añadir a Catálogo</span>
-            </button>
-          </form>
+          {perms.canCreate && (
+            <form onSubmit={handleAddItem} className="flex gap-2">
+              <input
+                type="text"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                placeholder={`Agregar nuevo elemento al catálogo "${activeCategory}"...`}
+                className="flex-1 px-4 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="submit"
+                className="flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Añadir a Catálogo</span>
+              </button>
+            </form>
+          )}
           {/* Search Filter for Catalog Items with Hide/Show Toggle */}
           <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between text-xs">
@@ -259,14 +265,16 @@ export const CatalogsModule: React.FC<CatalogsModuleProps> = ({
                   <span className="font-mono text-slate-400 w-8 text-right font-medium">{idx + 1}.</span>
                   <span className="font-semibold text-slate-900 dark:text-white">{item.value}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteItem(item.id)}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                  title="Eliminar de catálogo"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {perms.canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteItem(item.id)}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                    title="Eliminar de catálogo"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             ))}
             {items.length === 0 && (

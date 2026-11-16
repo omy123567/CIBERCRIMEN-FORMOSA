@@ -26,6 +26,18 @@ export const LibroPdfOptionsModal: React.FC<LibroPdfOptionsModalProps> = ({
   const [paperSize, setPaperSize] = useState<SgpPaperSize>('a4');
   const [orientation, setOrientation] = useState<SgpOrientation>('landscape');
 
+  // Interactive Column Selection for Report
+  const [columnsToInclude, setColumnsToInclude] = useState<Record<string, boolean>>({
+    expediente: true,
+    fecha: true,
+    oficio: true,
+    juzgado: true,
+    dependencia: true,
+    tipoReq: true,
+    resumen: true,
+    tarea: true
+  });
+
 
   // Preview Modal state
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
@@ -125,11 +137,12 @@ export const LibroPdfOptionsModal: React.FC<LibroPdfOptionsModalProps> = ({
     return t;
   };
 
-  const buildDoc = (pSize = paperSize, pOrient = orientation) => {
+  const buildDoc = (pSize = paperSize, pOrient = orientation, cols = columnsToInclude) => {
     const title = getFilterTitle();
     return generateExpedientesLogbookDoc(config, filteredExpedientes, title, {
       paperSize: pSize,
-      orientation: pOrient
+      orientation: pOrient,
+      visibleColumns: cols
     });
   };
 
@@ -345,6 +358,63 @@ export const LibroPdfOptionsModal: React.FC<LibroPdfOptionsModalProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            {/* Selector de Columnas y Datos a Mostrar */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Datos y Columnas a Mostrar en el Reporte:
+                </span>
+                <div className="flex items-center gap-2 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allOn: Record<string, boolean> = {};
+                      Object.keys(columnsToInclude).forEach(k => { allOn[k] = true; });
+                      setColumnsToInclude(allOn);
+                    }}
+                    className="text-blue-600 hover:underline font-semibold"
+                  >
+                    Marcar Todos
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const minimal: Record<string, boolean> = { expediente: true, resumen: true };
+                      Object.keys(columnsToInclude).forEach(k => { if (!minimal[k]) minimal[k] = false; });
+                      setColumnsToInclude(minimal);
+                    }}
+                    className="text-slate-500 hover:underline"
+                  >
+                    Mínimo
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                {[
+                  { key: 'expediente', label: 'Expediente/Año' },
+                  { key: 'fecha', label: 'Fecha Ingreso' },
+                  { key: 'oficio', label: 'Oficio/Letra' },
+                  { key: 'juzgado', label: 'Juzgado/Fiscalía' },
+                  { key: 'dependencia', label: 'Dependencia' },
+                  { key: 'tipoReq', label: 'Tipo Requerimiento' },
+                  { key: 'resumen', label: 'Resumen / Carátula' },
+                  { key: 'tarea', label: 'Tarea Realizada' }
+                ].map(col => (
+                  <label key={col.key} className="flex items-center gap-1.5 cursor-pointer text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={columnsToInclude[col.key] !== false}
+                      onChange={(e) => setColumnsToInclude(prev => ({ ...prev, [col.key]: e.target.checked }))}
+                      className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-[11px] font-medium">{col.label}</span>
+                  </label>
+                ))}
               </div>
             </div>
 

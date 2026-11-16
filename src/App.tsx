@@ -19,7 +19,11 @@ import { ModuleOrderManagerModal, DEFAULT_NAV_MODULES } from './components/setti
 import { LoginView } from './components/auth/LoginView';
 import { ChangePasswordModal } from './components/auth/ChangePasswordModal';
 import { NumerarioModule } from './components/numerario/NumerarioModule';
+import { TareasRealizadasModule } from './components/tareas/TareasRealizadasModule';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator';
+import { CustomModuleView } from './components/common/CustomModuleView';
+import { AuditoriaModule } from './components/auditoria/AuditoriaModule';
+import { PermissionsProvider, resolveUserPermissions } from './context/PermissionsContext';
 
 import {
   SgpBackupData,
@@ -34,17 +38,28 @@ import {
   DynamicCatalog,
   SisPolUser,
   SisPolDelegacion,
-  NavModuleItem
+  NavModuleItem,
+  FolioRegistro
 } from './types/sgp';
 import { initialInstitutionalConfig } from './db/sgpInitialData';
-import { sgpManager, db } from './db/dexieDb';
+import { sgpManager, db, getAuditHeaders } from './db/dexieDb';
+import { getUpcomingCharlasReminders } from './utils/charlaReminders';
+import { BellRing, Calendar, X } from 'lucide-react';
 
 export default function App() {
   // Authentication & Session
   const [currentUser, setCurrentUser] = useState<SisPolUser | null>(() => {
     try {
       const stored = localStorage.getItem('sispol_current_user');
-      return stored ? JSON.parse(stored) : null;
+      if (!stored) return null;
+      const parsed = JSON.parse(stored);
+      if (typeof parsed.allowedModules === 'string') {
+        try { parsed.allowedModules = JSON.parse(parsed.allowedModules); } catch { parsed.allowedModules = []; }
+      }
+      if (typeof parsed.allowedDelegacionIds === 'string') {
+        try { parsed.allowedDelegacionIds = JSON.parse(parsed.allowedDelegacionIds); } catch { parsed.allowedDelegacionIds = [parsed.delegacionId || 1]; }
+      }
+      return parsed;
     } catch {
       return null;
     }
@@ -63,6 +78,13 @@ export default function App() {
   const [isQuickNewOpen, setIsQuickNewOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isModuleAdminOpen, setIsModuleAdminOpen] = useState(false);
+  const [charlaToastDismissed, setCharlaToastDismissed] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('sispol_session_charla_toast_dismissed') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   // Dark / Light Mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -70,11 +92,22 @@ export default function App() {
     return saved !== 'light';
   });
 
-  // Custom Navigation Modules Order
+  // Custom Navigation Modules Order (auto-merges new modules like 'tareas')
   const [navModulesConfig, setNavModulesConfig] = useState<NavModuleItem[]>(() => {
     try {
       const saved = localStorage.getItem('sispol_nav_modules');
-      return saved ? JSON.parse(saved) : DEFAULT_NAV_MODULES;
+      if (saved) {
+        const parsed: NavModuleItem[] = JSON.parse(saved);
+        const existingIds = new Set(parsed.map((p) => p.id));
+        const missing = DEFAULT_NAV_MODULES.filter((d) => !existingIds.has(d.id));
+        if (missing.length > 0) {
+          const merged = [...parsed, ...missing].sort((a, b) => a.order - b.order);
+          localStorage.setItem('sispol_nav_modules', JSON.stringify(merged));
+          return merged;
+        }
+        return parsed;
+      }
+      return DEFAULT_NAV_MODULES;
     } catch {
       return DEFAULT_NAV_MODULES;
     }
@@ -96,6 +129,7 @@ export default function App() {
   const [institutionalConfig, setInstitutionalConfig] = useState<InstitutionalConfig>(initialInstitutionalConfig);
   const [isLoading, setIsLoading] = useState(true);
   const [foliosCount, setFoliosCount] = useState<number>(0);
+  const [foliosList, setFoliosList] = useState<FolioRegistro[]>([]);
 
   // Sync dark class on document element
   useEffect(() => {
@@ -107,6 +141,14 @@ export default function App() {
       localStorage.setItem('sispol_theme', 'light');
     }
   }, [isDarkMode]);
+
+  // Failsafe: never block interface indefinitely on loading
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Load database from Dexie
   const refreshData = useCallback(async (delId?: number) => {
@@ -123,6 +165,7 @@ export default function App() {
       setAllData(backup);
       setInstitutionalConfig(config);
       setFoliosCount(folios.length);
+      setFoliosList(folios);
     } catch (err) {
       console.error('Error refreshing data from Dexie:', err);
     } finally {
@@ -154,6 +197,17 @@ export default function App() {
 
   // Handle User Logout
   const handleLogout = () => {
+    if (currentUser) {
+      sgpManager.logAudit({
+        categoria: 'ACCESO',
+        operacion: 'LOGOUT',
+        modulo: 'Autenticación',
+        entidad: 'users',
+        entidadId: String(currentUser.id || ''),
+        descripcion: `Cierre de sesión de ${currentUser.username} (${currentUser.nombreApellido})`,
+        delegacionId: activeDelegacionId
+      });
+    }
     localStorage.removeItem('sispol_current_user');
     setCurrentUser(null);
     setCurrentModule('dashboard');
@@ -169,10 +223,35 @@ export default function App() {
     refreshData();
   };
 
+  // Pull server-stored nav modules configuration on mount (auto-merging newly introduced default modules)
+  useEffect(() => {
+    fetch('/api/settings/nav-modules')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((serverMods) => {
+        if (Array.isArray(serverMods) && serverMods.length > 0) {
+          const existingIds = new Set(serverMods.map((p: NavModuleItem) => p.id));
+          const missing = DEFAULT_NAV_MODULES.filter((d) => !existingIds.has(d.id));
+          const merged = missing.length > 0
+            ? [...serverMods, ...missing].sort((a, b) => a.order - b.order)
+            : serverMods;
+          setNavModulesConfig(merged);
+          localStorage.setItem('sispol_nav_modules', JSON.stringify(merged));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Handle Save Nav Modules Configuration
   const handleSaveNavModules = (modules: NavModuleItem[]) => {
     setNavModulesConfig(modules);
     localStorage.setItem('sispol_nav_modules', JSON.stringify(modules));
+    fetch('/api/settings/nav-modules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
+      body: JSON.stringify(modules)
+    }).catch((err) => {
+      console.warn('Failed to sync nav-modules to server:', err);
+    });
   };
 
   // Filter all data by activeDelegacionId (Delegation Isolation)
@@ -191,7 +270,60 @@ export default function App() {
     };
   }, [allData, activeDelegacionId]);
 
-  // Loading Screen
+  const urgentCharlaReminders = useMemo(() => {
+    return getUpcomingCharlasReminders(filteredData.charlas, 1);
+  }, [filteredData.charlas]);
+
+  // Fire optional Web Notification once per session when permission is granted for today/tomorrow Charlas
+  useEffect(() => {
+    if (!currentUser || urgentCharlaReminders.length === 0) return;
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    const sessionNotifKey = `sispol_browser_notif_sent_${activeDelegacionId}`;
+    try {
+      if (sessionStorage.getItem(sessionNotifKey)) return;
+      const first = urgentCharlaReminders[0];
+      new Notification(`Recordatorio de Charla (${first.label})`, {
+        body: `${first.charla.temaTratado} — ${first.charla.lugarInstitucion} (${first.charla.localidad})`
+      });
+      sessionStorage.setItem(sessionNotifKey, '1');
+    } catch {
+      // ignore notification errors in restricted contexts
+    }
+  }, [currentUser, urgentCharlaReminders, activeDelegacionId]);
+
+  // Access Guard: Ensure non-superusers cannot stay on unauthorized modules or auditoria (Unconditional Hook)
+  useEffect(() => {
+    if (currentUser && currentUser.rol !== 'superusuario') {
+      if (currentModule === 'auditoria') {
+        const allowed = currentUser.allowedModules || [];
+        const fallback = allowed.includes('dashboard') ? 'dashboard' : allowed[0] || 'dashboard';
+        setCurrentModule(fallback);
+        return;
+      }
+      const allowed = currentUser.allowedModules;
+      if (Array.isArray(allowed) && allowed.length > 0) {
+        const isStandardAllowed = allowed.includes(currentModule);
+        const isCustomAllowed = navModulesConfig.some(
+          (m) =>
+            m.id === currentModule &&
+            (allowed.includes(m.id) || (m.parentModuleId && allowed.includes(m.parentModuleId)))
+        );
+        if (!isStandardAllowed && !isCustomAllowed) {
+          const fallback = allowed.includes('dashboard') ? 'dashboard' : allowed[0] || 'dashboard';
+          setCurrentModule(fallback);
+        }
+      }
+    }
+  }, [currentUser, currentModule, navModulesConfig]);
+
+  // If user is not logged in, show official LoginView immediately (zero delay)
+  if (!currentUser) {
+    return <LoginView onLoginSuccess={handleLoginSuccess} delegaciones={delegaciones} />;
+  }
+
+  // Loading Screen only when logged in user data is syncing
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-950 text-white space-y-3">
@@ -205,12 +337,15 @@ export default function App() {
     );
   }
 
-  // If user is not logged in, show official LoginView
-  if (!currentUser) {
-    return <LoginView onLoginSuccess={handleLoginSuccess} delegaciones={delegaciones} />;
-  }
+  const totalTareasCount =
+    filteredData.expedientes.length +
+    filteredData.recargos.length +
+    filteredData.charlas.length +
+    filteredData.reparaciones.length +
+    foliosCount;
 
   const counts = {
+    tareas: totalTareasCount,
     expedientes: filteredData.expedientes.length,
     numerario: foliosCount,
     ppi: filteredData.expedientes.filter((e) => {
@@ -228,16 +363,20 @@ export default function App() {
     charlas: filteredData.charlas.length
   };
 
-  const canDelete = currentUser.canDelete || currentUser.rol === 'superusuario';
+  const perms = resolveUserPermissions(currentUser);
+  const canDelete = perms.canDelete;
+  const canAdminModules = perms.canAdminModules;
+  const canQuickCreate = !perms.readOnly && perms.canCreate;
   const activeDelegacion = delegaciones.find((d) => d.id === activeDelegacionId);
 
   return (
+    <PermissionsProvider user={currentUser}>
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Top Header */}
       <Header
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         institutionalConfig={institutionalConfig}
-        onOpenQuickNew={() => setIsQuickNewOpen(true)}
+        onOpenQuickNew={canQuickCreate ? () => setIsQuickNewOpen(true) : undefined}
         currentUser={currentUser}
         delegaciones={delegaciones}
         activeDelegacionId={activeDelegacionId}
@@ -246,7 +385,9 @@ export default function App() {
         onLogout={handleLogout}
         isDarkMode={isDarkMode}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
-        onOpenModuleAdmin={() => setIsModuleAdminOpen(true)}
+        onOpenModuleAdmin={canAdminModules ? () => setIsModuleAdminOpen(true) : undefined}
+        charlas={filteredData.charlas}
+        onNavigate={(mod) => setCurrentModule(mod)}
       />
 
       <div className="flex-1 flex flex-row w-full max-w-full overflow-hidden">
@@ -255,7 +396,9 @@ export default function App() {
           currentModule={currentModule}
           onSelectModule={(mod) => {
             if (mod === 'modulos') {
-              setIsModuleAdminOpen(true);
+              if (canAdminModules) {
+                setIsModuleAdminOpen(true);
+              }
             } else {
               setCurrentModule(mod);
             }
@@ -266,6 +409,8 @@ export default function App() {
           currentUser={currentUser}
           activeDelegacion={activeDelegacion}
           navModulesConfig={navModulesConfig}
+          onReorderModules={handleSaveNavModules}
+          onOpenModuleAdmin={canAdminModules ? () => setIsModuleAdminOpen(true) : undefined}
           delegaciones={delegaciones}
           activeDelegacionId={activeDelegacionId}
           onChangeDelegacion={handleChangeDelegacion}
@@ -280,10 +425,27 @@ export default function App() {
               personalList={filteredData.personal}
               moviles={filteredData.moviles}
               reparaciones={filteredData.reparaciones}
+              charlas={filteredData.charlas}
               catalogs={filteredData.dynamicCatalogs}
               institutionalConfig={institutionalConfig}
               selectedYear={selectedYear}
               onSelectYear={setSelectedYear}
+              onNavigate={(mod) => setCurrentModule(mod)}
+            />
+          )}
+
+          {currentModule === 'tareas' && (
+            <TareasRealizadasModule
+              expedientes={filteredData.expedientes}
+              recargos={filteredData.recargos}
+              charlas={filteredData.charlas}
+              moviles={filteredData.moviles}
+              reparaciones={filteredData.reparaciones}
+              folios={foliosList}
+              personalList={filteredData.personal}
+              catalogs={filteredData.dynamicCatalogs}
+              institutionalConfig={institutionalConfig}
+              currentUser={currentUser}
               onNavigate={(mod) => setCurrentModule(mod)}
             />
           )}
@@ -425,18 +587,57 @@ export default function App() {
               onRefresh={refreshData}
             />
           )}
+
+          {currentModule === 'auditoria' && currentUser.rol === 'superusuario' && (
+            <AuditoriaModule
+              currentUser={currentUser}
+              delegaciones={delegaciones}
+            />
+          )}
+
+          {/* Custom Module / Folder View fallback */}
+          {![
+            'dashboard',
+            'tareas',
+            'expedientes',
+            'numerario',
+            'ppi',
+            'personas',
+            'personal',
+            'licencias',
+            'moviles',
+            'recargos',
+            'charlas',
+            'membrete',
+            'catalogos',
+            'respaldos',
+            'usuarios',
+            'auditoria'
+          ].includes(currentModule) && (
+            <CustomModuleView
+              currentModuleId={currentModule}
+              navModulesConfig={navModulesConfig}
+              currentUser={currentUser}
+              delegacionId={activeDelegacionId}
+              institutionalConfig={institutionalConfig}
+              onNavigate={(mod) => setCurrentModule(mod)}
+              onOpenModuleAdmin={() => setIsModuleAdminOpen(true)}
+            />
+          )}
         </main>
       </div>
 
       {/* Global Quick Add Expediente Modal */}
-      <ExpedienteFormModal
-        isOpen={isQuickNewOpen}
-        onClose={() => setIsQuickNewOpen(false)}
-        onSave={handleSaveQuickExpediente}
-        catalogs={filteredData.dynamicCatalogs}
-        personalList={filteredData.personal}
-        delegacionId={activeDelegacionId}
-      />
+      {canQuickCreate && (
+        <ExpedienteFormModal
+          isOpen={isQuickNewOpen}
+          onClose={() => setIsQuickNewOpen(false)}
+          onSave={handleSaveQuickExpediente}
+          catalogs={filteredData.dynamicCatalogs}
+          personalList={filteredData.personal}
+          delegacionId={activeDelegacionId}
+        />
+      )}
 
       {/* Change Password Modal */}
       <ChangePasswordModal
@@ -447,15 +648,70 @@ export default function App() {
       />
 
       {/* Module Order & Submodules Manager Modal */}
-      <ModuleOrderManagerModal
-        isOpen={isModuleAdminOpen}
-        onClose={() => setIsModuleAdminOpen(false)}
-        onSaveModules={handleSaveNavModules}
-        currentModules={navModulesConfig}
-      />
+      {canAdminModules && (
+        <ModuleOrderManagerModal
+          isOpen={isModuleAdminOpen}
+          onClose={() => setIsModuleAdminOpen(false)}
+          onSaveModules={handleSaveNavModules}
+          currentModules={navModulesConfig}
+          isSuperuser={currentUser.rol === 'superusuario'}
+        />
+      )}
+
+      {/* Urgent Charla Reminder Toast (Today / Tomorrow) */}
+      {urgentCharlaReminders.length > 0 && !charlaToastDismissed && currentModule !== 'charlas' && (
+        <div className="fixed bottom-4 right-4 z-40 max-w-sm w-[calc(100%-2rem)] bg-slate-900 dark:bg-slate-800 text-white border border-amber-500/60 rounded-2xl p-4 shadow-2xl space-y-2.5 animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase">
+              <BellRing className="w-4 h-4 animate-pulse shrink-0" />
+              <span>Recordatorio de Charla Próxima</span>
+            </div>
+            <button
+              onClick={() => {
+                setCharlaToastDismissed(true);
+                try { sessionStorage.setItem('sispol_session_charla_toast_dismissed', '1'); } catch {}
+              }}
+              className="text-slate-400 hover:text-white p-0.5"
+              aria-label="Cerrar recordatorio"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="space-y-1 text-xs">
+            <div className="flex items-center gap-2 font-mono text-amber-300 font-bold">
+              <Calendar className="w-3.5 h-3.5" />
+              <span>{urgentCharlaReminders[0].label} • {urgentCharlaReminders[0].charla.fecha}</span>
+            </div>
+            <div className="font-bold text-white line-clamp-2">
+              {urgentCharlaReminders[0].charla.temaTratado}
+            </div>
+            <div className="text-[11px] text-slate-300">
+              {urgentCharlaReminders[0].charla.lugarInstitucion} ({urgentCharlaReminders[0].charla.localidad})
+            </div>
+            {urgentCharlaReminders.length > 1 && (
+              <div className="text-[10px] text-blue-300 font-semibold">
+                +{urgentCharlaReminders.length - 1} charla(s) adicional(es) entre hoy y mañana
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={() => {
+                setCharlaToastDismissed(true);
+                try { sessionStorage.setItem('sispol_session_charla_toast_dismissed', '1'); } catch {}
+                setCurrentModule('charlas');
+              }}
+              className="px-3 py-1.5 text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg transition-colors"
+            >
+              Ver en Charlas
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* PWA / Cross-platform Offline Status Indicator */}
       <OfflineIndicator />
     </div>
+    </PermissionsProvider>
   );
 }

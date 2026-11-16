@@ -13,18 +13,6 @@ interface AsignarFolioModalProps {
   onSave: (folios: Omit<FolioRegistro, 'id'>[]) => Promise<void>;
 }
 
-const TIPO_DOC_OPTIONS = [
-  { label: 'Oficio Judicial', prefix: 'OF-JUD' },
-  { label: 'Oficio Policial', prefix: 'OF-POL' },
-  { label: 'Memorándum Interno', prefix: 'MEMO' },
-  { label: 'Expediente / Actuación', prefix: 'EXP' },
-  { label: 'Circular Reglamentaria', prefix: 'CIRC' },
-  { label: 'Radiomensaje Policial', prefix: 'RAD' },
-  { label: 'Nota Externa / Requerimiento', prefix: 'NOTA' },
-  { label: 'Cédula de Notificación', prefix: 'CED' },
-  { label: 'Dictamen Pericial Forense', prefix: 'DICT' }
-];
-
 export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
   isOpen,
   onClose,
@@ -39,11 +27,7 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
   const [numeroDesde, setNumeroDesde] = useState<number>(initialNumero);
   const [numeroHasta, setNumeroHasta] = useState<number>(initialRangoFin || initialNumero);
   
-  const [tipoDocumento, setTipoDocumento] = useState<string>(TIPO_DOC_OPTIONS[0].label);
   const [asunto, setAsunto] = useState<string>('');
-  const [destinatario, setDestinatario] = useState<string>('');
-  const [solicitante, setSolicitante] = useState<string>(currentUser.nombreApellido || '');
-  const [observaciones, setObservaciones] = useState<string>('');
   const [anio, setAnio] = useState<string>(serie.anio || '2026');
   
   const [error, setError] = useState<string | null>(null);
@@ -88,11 +72,6 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
       return;
     }
 
-    if (!destinatario.trim()) {
-      setError('El Destinatario u Organismo es obligatorio.');
-      return;
-    }
-
     if (start < 1) {
       setError('El número de folio debe ser mayor o igual a 1.');
       return;
@@ -122,11 +101,11 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
         caratula: isRange && start !== end 
           ? `${serie.nombre} N° ${start}/${anio} a ${end}/${anio} [Pieza ${idx + 1}/${rangeNumbers.length}]`
           : `${serie.nombre} N° ${num}/${anio}`,
-        tipoDocumento,
+        tipoDocumento: serie.nombre,
         asunto: asunto.trim(),
-        destinatario: destinatario.trim(),
-        solicitante: solicitante.trim(),
-        observaciones: observaciones.trim(),
+        destinatario: '',
+        solicitante: currentUser.nombreApellido || currentUser.username || '',
+        observaciones: '',
         fecha: fechaStr,
         hora: horaStr,
         usuarioAsigno: currentUser.username,
@@ -294,80 +273,18 @@ export const AsignarFolioModal: React.FC<AsignarFolioModalProps> = ({
             </div>
           </div>
 
-          {/* Tipo de Documento */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Tipo / Categoría de Trámite
-            </label>
-            <select
-              value={tipoDocumento}
-              onChange={(e) => setTipoDocumento(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-900 dark:text-white"
-            >
-              {TIPO_DOC_OPTIONS.map((t) => (
-                <option key={t.label} value={t.label}>
-                  {t.label} [{t.prefix}]
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Asunto / Objeto */}
+          {/* Asunto / Objeto del Trámite */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
               Asunto / Objeto del Trámite *
             </label>
             <textarea
-              rows={2}
+              rows={3}
               required
               value={asunto}
               onChange={(e) => setAsunto(e.target.value)}
-              placeholder="Describa brevemente el objeto del documento (ej. Remisión de pericia balística en Causa N° 145/26)"
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* Destinatario & Solicitante */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Destinatario / Organismo *
-              </label>
-              <input
-                type="text"
-                required
-                value={destinatario}
-                onChange={(e) => setDestinatario(e.target.value)}
-                placeholder="ej. Juzgado de Instrucción N° 1"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Iniciador / Solicitante
-              </label>
-              <input
-                type="text"
-                value={solicitante}
-                onChange={(e) => setSolicitante(e.target.value)}
-                placeholder="ej. Comisario Inspector Gómez"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
-              />
-            </div>
-          </div>
-
-          {/* Observaciones */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Observaciones Adicionales
-            </label>
-            <input
-              type="text"
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              placeholder="Datos de entrega, fojas anexas o notas de recibo"
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+              placeholder="Describa el objeto del trámite (ej. Remisión de informe pericial técnico en causa judicial N° 124/26)"
+              className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500"
             />
           </div>
 

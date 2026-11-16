@@ -22,6 +22,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { exportIndividualJson } from '../../utils/sgpBackupZip';
 import { exportPersonalRosterPDF } from '../../utils/sgpPdfGenerator';
 import { sgpManager } from '../../db/dexieDb';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface LicenciasModuleProps {
   personalList: Personal[];
@@ -44,6 +45,7 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
   onRefresh,
   anioBase = 2026
 }) => {
+  const perms = usePermissions();
   const [activeTab, setActiveTab] = useState<'cuatrienios' | 'historial'>('cuatrienios');
   const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -99,9 +101,17 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
         const q = searchTerm.toLowerCase().trim();
         const nameMatch = person.apellidoNombre.toLowerCase().includes(q);
         const dniMatch = person.dni.includes(q);
+        let cpValue = (person.cedulaProvincial || '').toLowerCase();
+        if (!cpValue && person.customFieldsJson) {
+          try {
+            const parsed = JSON.parse(person.customFieldsJson);
+            cpValue = (parsed.cedulaProvincial || '').toLowerCase();
+          } catch {}
+        }
+        const cpMatch = cpValue.includes(q);
         const plazaMatch = person.plaza.toLowerCase().includes(q);
         const jerMatch = person.jerarquia.toLowerCase().includes(q);
-        return nameMatch || dniMatch || plazaMatch || jerMatch;
+        return nameMatch || dniMatch || cpMatch || plazaMatch || jerMatch;
       }
       return true;
     });
@@ -110,6 +120,7 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
 
   // Actions
   const handleSaveLicencia = async (lic: Licencia) => {
+    if (!perms.canCreate) return;
     const db = (await import('../../db/dexieDb')).db;
     await db.licencias.add(lic);
     sgpManager.notify();
@@ -121,6 +132,7 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
     anio: number,
     newStatus: 'AUTOMÁTICO' | 'MANUAL' | 'VENCIDA' | 'SIN DÍAS'
   ) => {
+    if (!perms.canEdit) return;
     const db = (await import('../../db/dexieDb')).db;
     const p = await db.personal.get(personalId);
     if (!p) return;
@@ -145,6 +157,7 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
   };
 
   const handleVencerAnteriores = async (personalId: number, currentYear: number) => {
+    if (!perms.canResetCounters) return;
     const db = (await import('../../db/dexieDb')).db;
     const p = await db.personal.get(personalId);
     if (!p) return;
@@ -172,6 +185,7 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
   };
 
   const handleBulkVencerAnteriores = async () => {
+    if (!perms.canResetCounters) return;
     const db = (await import('../../db/dexieDb')).db;
     const all = await db.personal.toArray();
 
@@ -201,6 +215,7 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
   };
 
   const handleInterruptLicencia = async (licenciaId: number, devueltos: number, motivo: string) => {
+    if (!perms.canEdit) return;
     const db = (await import('../../db/dexieDb')).db;
     const lic = await db.licencias.get(licenciaId);
     if (lic) {
@@ -251,22 +266,26 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => exportIndividualJson('Licencias', licencias)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Exportar JSON</span>
-          </button>
+          {perms.canExport && (
+            <button
+              onClick={() => exportIndividualJson('Licencias', licencias)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Exportar JSON</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setConfirmBulkVencer(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 border border-rose-200 dark:border-rose-900 rounded-xl shadow-xs"
-            title={`Marcar vencidos períodos anteriores a ${anioBase} para toda la fuerza`}
-          >
-            <XCircle className="w-3.5 h-3.5 text-rose-600" />
-            <span>Vencer &lt; {anioBase} (Global)</span>
-          </button>
+          {perms.canResetCounters && (
+            <button
+              onClick={() => setConfirmBulkVencer(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 border border-rose-200 dark:border-rose-900 rounded-xl shadow-xs"
+              title={`Marcar vencidos períodos anteriores a ${anioBase} para toda la fuerza`}
+            >
+              <XCircle className="w-3.5 h-3.5 text-rose-600" />
+              <span>Vencer &lt; {anioBase} (Global)</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -454,7 +473,7 @@ export const LicenciasModule: React.FC<LicenciasModuleProps> = ({
                           onClick={() => setSelectedForLicencia(person)}
                           className="px-3 py-1.5 text-xs font-bold text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-600/30 rounded-xl transition-all"
                         >
-                          Gestionar
+                          {perms.canCreate || perms.canEdit || perms.canResetCounters ? 'Gestionar' : 'Ver Cuatrienio'}
                         </button>
                       </td>
                     </tr>

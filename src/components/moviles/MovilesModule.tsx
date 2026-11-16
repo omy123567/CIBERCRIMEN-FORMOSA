@@ -23,6 +23,7 @@ import { MovilPdfModal } from './MovilPdfModal';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { exportIndividualJson } from '../../utils/sgpBackupZip';
 import { sgpManager } from '../../db/dexieDb';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface MovilesModuleProps {
   moviles: Movil[];
@@ -45,6 +46,7 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
   onNavigate,
   onRefresh
 }) => {
+  const perms = usePermissions();
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -156,6 +158,7 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
 
   // Actions
   const handleSaveMovil = async (movil: Movil) => {
+    if (movil.id ? !perms.canEdit : !perms.canCreate) return;
     const movilToSave: Movil = {
       ...movil,
       delegacionId: movil.delegacionId || delegacionId || 1
@@ -171,6 +174,7 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
   };
 
   const handleDeleteMovil = async () => {
+    if (!perms.canDelete) return;
     if (deleteTargetId) {
       const db = (await import('../../db/dexieDb')).db;
       await db.moviles.delete(deleteTargetId);
@@ -182,6 +186,7 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
   };
 
   const handleSaveReparacion = async (rep: Reparacion) => {
+    if (!perms.canCreate) return;
     const db = (await import('../../db/dexieDb')).db;
     await db.reparaciones.add(rep);
 
@@ -199,6 +204,7 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
   };
 
   const handleDeleteReparacion = async (id: number) => {
+    if (!perms.canDelete) return;
     const db = (await import('../../db/dexieDb')).db;
     await db.reparaciones.delete(id);
     sgpManager.notify();
@@ -220,24 +226,28 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => exportIndividualJson('Moviles', moviles)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl transition-colors shadow-xs"
-          >
-            <FileDown className="w-3.5 h-3.5" />
-            <span>Exportar JSON</span>
-          </button>
+          {perms.canExport && (
+            <button
+              onClick={() => exportIndividualJson('Moviles', moviles)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl transition-colors shadow-xs"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              <span>Exportar JSON</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              setEditingMovil(null);
-              setIsFormOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Registrar Móvil</span>
-          </button>
+          {perms.canCreate && (
+            <button
+              onClick={() => {
+                setEditingMovil(null);
+                setIsFormOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Registrar Móvil</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -486,32 +496,38 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
                       <span>Taller ({movilRepairs.length})</span>
                     </button>
 
-                    <button
-                      onClick={() => setSelectedForPdf(movil)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 rounded-lg transition-colors"
-                      title="Descargar Ficha Técnica Vehicular en PDF"
-                    >
-                      <FileDown className="w-3.5 h-3.5" />
-                      <span>Ficha PDF</span>
-                    </button>
+                    {perms.canExport && (
+                      <button
+                        onClick={() => setSelectedForPdf(movil)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 rounded-lg transition-colors"
+                        title="Descargar Ficha Técnica Vehicular en PDF"
+                      >
+                        <FileDown className="w-3.5 h-3.5" />
+                        <span>Ficha PDF</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => {
-                        setEditingMovil(movil);
-                        setIsFormOpen(true);
-                      }}
-                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => movil.id && setDeleteTargetId(movil.id)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {perms.canEdit && (
+                      <button
+                        onClick={() => {
+                          setEditingMovil(movil);
+                          setIsFormOpen(true);
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                    )}
+                    {perms.canDelete && (
+                      <button
+                        onClick={() => movil.id && setDeleteTargetId(movil.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -549,13 +565,15 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
                   </span>
                   <span className="text-xs font-semibold text-slate-500">{movil.condicion}</span>
 
-                  <button
-                    onClick={() => setSelectedForPdf(movil)}
-                    className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                    title="PDF"
-                  >
-                    <FileDown className="w-4 h-4" />
-                  </button>
+                  {perms.canExport && (
+                    <button
+                      onClick={() => setSelectedForPdf(movil)}
+                      className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                      title="PDF"
+                    >
+                      <FileDown className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -644,27 +662,33 @@ export const MovilesModule: React.FC<MovilesModuleProps> = ({
                         >
                           Taller
                         </button>
-                        <button
-                          onClick={() => setSelectedForPdf(movil)}
-                          className="text-blue-600 hover:text-blue-800 font-semibold mr-2"
-                        >
-                          PDF
-                        </button>
-                        <button
-                          onClick={() => {
-                            setEditingMovil(movil);
-                            setIsFormOpen(true);
-                          }}
-                          className="text-slate-500 hover:text-slate-800 mr-2"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => movil.id && setDeleteTargetId(movil.id)}
-                          className="text-rose-500 hover:text-rose-700"
-                        >
-                          Eliminar
-                        </button>
+                        {perms.canExport && (
+                          <button
+                            onClick={() => setSelectedForPdf(movil)}
+                            className="text-blue-600 hover:text-blue-800 font-semibold mr-2"
+                          >
+                            PDF
+                          </button>
+                        )}
+                        {perms.canEdit && (
+                          <button
+                            onClick={() => {
+                              setEditingMovil(movil);
+                              setIsFormOpen(true);
+                            }}
+                            className="text-slate-500 hover:text-slate-800 mr-2"
+                          >
+                            Editar
+                          </button>
+                        )}
+                        {perms.canDelete && (
+                          <button
+                            onClick={() => movil.id && setDeleteTargetId(movil.id)}
+                            className="text-rose-500 hover:text-rose-700"
+                          >
+                            Eliminar
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

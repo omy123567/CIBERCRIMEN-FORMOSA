@@ -4,17 +4,19 @@ import {
   Plus,
   Download,
   Trash2,
+  Edit3,
   Calendar,
+  Clock,
   MapPin,
   Users,
   Search,
   Filter,
-  Layers,
   Table as TableIcon,
   LayoutGrid,
   Map,
   Sparkles,
-  School
+  School,
+  BellRing
 } from 'lucide-react';
 import { Charla, Personal, DynamicCatalog, InstitutionalConfig } from '../../types/sgp';
 import { generateCharlasDoc, SgpPaperSize, SgpOrientation } from '../../utils/sgpPdfGenerator';
@@ -22,6 +24,12 @@ import { exportIndividualJson } from '../../utils/sgpBackupZip';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { PdfPreviewModal } from '../common/PdfPreviewModal';
 import { sgpManager } from '../../db/dexieDb';
+import { usePermissions } from '../../context/PermissionsContext';
+import {
+  formatDateDDMMYYYY,
+  getCharlaReminderInfo,
+  getUpcomingCharlasReminders
+} from '../../utils/charlaReminders';
 
 interface CharlasModuleProps {
   charlas: Charla[];
@@ -41,9 +49,9 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
   catalogs,
   institutionalConfig,
   delegacionId,
-  onNavigate,
   onRefresh
 }) => {
+  const perms = usePermissions();
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showFilters, setShowFilters] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -61,14 +69,15 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
     setSelectedLocalidad('');
   };
 
-  // Form State
+  // Form State (Strictly ONLY the 7 requested fields)
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [fecha, setFecha] = useState(new Date().toLocaleDateString('es-AR'));
-  const [lugarInstitucion, setLugarInstitucion] = useState('');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [fecha, setFecha] = useState(formatDateDDMMYYYY());
+  const [hora, setHora] = useState('09:00');
   const [localidad, setLocalidad] = useState('');
+  const [lugarInstitucion, setLugarInstitucion] = useState('');
   const [temaTratado, setTemaTratado] = useState('');
   const [personalDesignado, setPersonalDesignado] = useState('');
-  const [cantidadAsistentes, setCantidadAsistentes] = useState<number>(50);
   const [observaciones, setObservaciones] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
 
@@ -85,6 +94,7 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
     paperSize: SgpPaperSize = 'a4',
     orientation: SgpOrientation = 'landscape'
   ) => {
+    if (!perms.canExport) return;
     const doc = generateCharlasDoc(institutionalConfig, filteredCharlas, { paperSize, orientation });
     const blob = doc.output('blob');
     setPdfPreviewBlob({
@@ -96,7 +106,16 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
     });
   };
 
-  const localidades = catalogs.filter((c) => c.category === 'Localidades').map((c) => c.value);
+  const localidades = useMemo(
+    () => catalogs.filter((c) => c.category === 'Localidades').map((c) => c.value),
+    [catalogs]
+  );
+
+  // Upcoming reminders (next 14 days)
+  const upcomingReminders = useMemo(
+    () => getUpcomingCharlasReminders(charlas, 14),
+    [charlas]
+  );
 
   // Filtered charlas
   const filteredCharlas = useMemo(() => {
@@ -104,12 +123,14 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
       if (selectedLocalidad && ch.localidad !== selectedLocalidad) return false;
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim();
+        const fechaMatch = (ch.fecha || '').toLowerCase().includes(q);
+        const horaMatch = (ch.hora || '').toLowerCase().includes(q);
         const temaMatch = (ch.temaTratado || '').toLowerCase().includes(q);
         const instMatch = (ch.lugarInstitucion || '').toLowerCase().includes(q);
         const locMatch = (ch.localidad || '').toLowerCase().includes(q);
         const persMatch = (ch.personalDesignado || '').toLowerCase().includes(q);
         const obsMatch = (ch.observaciones || '').toLowerCase().includes(q);
-        return temaMatch || instMatch || locMatch || persMatch || obsMatch;
+        return fechaMatch || horaMatch || temaMatch || instMatch || locMatch || persMatch || obsMatch;
       }
       return true;
     });
@@ -117,55 +138,84 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
 
   // Aggregate by location
   const byLocationGroups = useMemo(() => {
-    const record: Record<string, { charlas: Charla[]; totalAsistentes: number }> = {};
+    const record: Record<string, { charlas: Charla[] }> = {};
     filteredCharlas.forEach((ch) => {
       const loc = ch.localidad || 'Sin Localidad';
       if (!record[loc]) {
-        record[loc] = { charlas: [], totalAsistentes: 0 };
+        record[loc] = { charlas: [] };
       }
       record[loc].charlas.push(ch);
-      record[loc].totalAsistentes += ch.cantidadAsistentes || 0;
     });
     return Object.entries(record).sort((a, b) => b[1].charlas.length - a[1].charlas.length);
   }, [filteredCharlas]);
 
   // Aggregate by topic
   const byTopicGroups = useMemo(() => {
-    const record: Record<string, { charlas: Charla[]; totalAsistentes: number }> = {};
+    const record: Record<string, { charlas: Charla[] }> = {};
     filteredCharlas.forEach((ch) => {
-      const t = ch.temaTratado ? ch.temaTratado.trim() : 'Sin Asunto Específico';
+      const t = ch.temaTratado ? ch.temaTratado.trim() : 'Sin Tema Específico';
       if (!record[t]) {
-        record[t] = { charlas: [], totalAsistentes: 0 };
+        record[t] = { charlas: [] };
       }
       record[t].charlas.push(ch);
-      record[t].totalAsistentes += ch.cantidadAsistentes || 0;
     });
     return Object.entries(record).sort((a, b) => b[1].charlas.length - a[1].charlas.length);
   }, [filteredCharlas]);
 
-  // Total stats
-  const totalAsistentesGlobal = useMemo(() => {
-    return filteredCharlas.reduce((acc, c) => acc + (c.cantidadAsistentes || 0), 0);
-  }, [filteredCharlas]);
+  const openCreateModal = () => {
+    setEditingId(null);
+    setFecha(formatDateDDMMYYYY());
+    setHora('09:00');
+    setLocalidad(localidades[0] || 'Laguna Blanca');
+    setLugarInstitucion('');
+    setTemaTratado('');
+    setPersonalDesignado(
+      personalList[0] ? `${personalList[0].jerarquia} ${personalList[0].apellidoNombre}` : ''
+    );
+    setObservaciones('');
+    setIsFormOpen(true);
+  };
+
+  const openEditModal = (ch: Charla) => {
+    if (!perms.canEdit || !ch.id) return;
+    setEditingId(ch.id);
+    setFecha(ch.fecha || formatDateDDMMYYYY());
+    setHora(ch.hora || '09:00');
+    setLocalidad(ch.localidad || localidades[0] || 'Laguna Blanca');
+    setLugarInstitucion(ch.lugarInstitucion || '');
+    setTemaTratado(ch.temaTratado || '');
+    setPersonalDesignado(ch.personalDesignado || '');
+    setObservaciones(ch.observaciones || '');
+    setIsFormOpen(true);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (editingId && !perms.canEdit) return;
+    if (!editingId && !perms.canCreate) return;
+
     const db = (await import('../../db/dexieDb')).db;
 
-    const nuevaCharla: Charla = {
-      fecha,
-      lugarInstitucion,
+    const charlaData: Charla = {
+      fecha: fecha.trim(),
+      hora: hora.trim(),
       localidad: localidad || localidades[0] || 'Laguna Blanca',
-      temaTratado,
-      personalDesignado,
-      cantidadAsistentes: Number(cantidadAsistentes) || 0,
-      observaciones,
+      lugarInstitucion: lugarInstitucion.trim(),
+      temaTratado: temaTratado.trim(),
+      personalDesignado: personalDesignado.trim(),
+      observaciones: observaciones.trim(),
       delegacionId: delegacionId || 1
     };
 
-    await db.charlas.add(nuevaCharla);
+    if (editingId) {
+      await db.charlas.update(editingId, charlaData);
+    } else {
+      await db.charlas.add(charlaData);
+    }
+
     sgpManager.notify();
     setIsFormOpen(false);
+    setEditingId(null);
     setLugarInstitucion('');
     setTemaTratado('');
     setObservaciones('');
@@ -173,6 +223,7 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
   };
 
   const handleDelete = async () => {
+    if (!perms.canDelete) return;
     if (deleteTargetId) {
       const db = (await import('../../db/dexieDb')).db;
       await db.charlas.delete(deleteTargetId);
@@ -180,6 +231,28 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
       setDeleteTargetId(null);
       onRefresh();
     }
+  };
+
+  const renderReminderBadge = (ch: Charla) => {
+    const info = getCharlaReminderInfo(ch);
+    if (!info || info.daysUntil < 0 || info.daysUntil > 14) return null;
+
+    const style =
+      info.status === 'today'
+        ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/70 dark:text-rose-300 dark:border-rose-800 animate-pulse'
+        : info.status === 'tomorrow'
+        ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800'
+        : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800';
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border font-mono shrink-0 ${style}`}
+        title="Recordatorio de evento programado"
+      >
+        <BellRing className="w-3 h-3" />
+        <span>{info.label}</span>
+      </span>
+    );
   };
 
   return (
@@ -192,41 +265,82 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
             <span>Charlas y Prevención Comunitaria</span>
           </h1>
           <p className="text-xs text-slate-500">
-            Capacitaciones escolares, ciberdelito, seguridad vial y prevención comunitaria • D.D.P.C.L.B.
+            Agenda y registro de capacitaciones escolares, ciberdelito, seguridad vial y prevención comunitaria • D.D.P.C.L.B.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => handleOpenCharlasPdf()}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 border border-blue-200 dark:border-blue-900 rounded-xl shadow-xs transition-colors"
-            title="Generar Registro Oficial de Charlas en PDF"
-          >
-            <Download className="w-3.5 h-3.5 text-blue-600" />
-            <span>PDF Charlas</span>
-          </button>
+          {perms.canExport && (
+            <>
+              <button
+                onClick={() => handleOpenCharlasPdf()}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 border border-blue-200 dark:border-blue-900 rounded-xl shadow-xs transition-colors"
+                title="Generar Registro Oficial de Charlas en PDF"
+              >
+                <Download className="w-3.5 h-3.5 text-blue-600" />
+                <span>PDF Charlas</span>
+              </button>
 
-          <button
-            onClick={() => exportIndividualJson('Charlas', charlas)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Exportar JSON</span>
-          </button>
+              <button
+                onClick={() => exportIndividualJson('Charlas', charlas)}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Exportar JSON</span>
+              </button>
+            </>
+          )}
 
-          <button
-            onClick={() => {
-              setLocalidad(localidades[0] || 'Laguna Blanca');
-              setPersonalDesignado(personalList[0] ? `${personalList[0].jerarquia} ${personalList[0].apellidoNombre}` : '');
-              setIsFormOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Registrar Charla</span>
-          </button>
+          {perms.canCreate && (
+            <button
+              onClick={openCreateModal}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Registrar Charla</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Upcoming Reminders Banner */}
+      {upcomingReminders.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-50 via-blue-50 to-indigo-50 dark:from-amber-950/30 dark:via-slate-900 dark:to-indigo-950/30 border border-amber-200 dark:border-amber-800/60 rounded-2xl p-4 shadow-xs">
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-amber-900 dark:text-amber-300 uppercase tracking-wide">
+              <BellRing className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              <span>Recordatorios Próximos ({upcomingReminders.length})</span>
+            </div>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              Eventos agendados para hoy y los próximos 14 días
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {upcomingReminders.slice(0, 6).map((item) => (
+              <div
+                key={item.key}
+                className="bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs space-y-1 shadow-2xs"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono font-bold text-blue-700 dark:text-blue-400">
+                    {item.charla.fecha} {item.charla.hora ? `• ${item.charla.hora} hs` : ''}
+                  </span>
+                  {renderReminderBadge(item.charla)}
+                </div>
+                <div className="font-bold text-slate-900 dark:text-white line-clamp-1">
+                  {item.charla.temaTratado}
+                </div>
+                <div className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
+                  {item.charla.lugarInstitucion} ({item.charla.localidad})
+                </div>
+                <div className="text-[11px] text-slate-500 truncate">
+                  Disertante: {item.charla.personalDesignado || 'A designar'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Metrics Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -237,9 +351,9 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
           </div>
         </div>
         <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase">Asistentes Alcanzados</span>
-          <div className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-1">
-            {totalAsistentesGlobal.toLocaleString('es-AR')}
+          <span className="text-[11px] font-bold text-slate-400 uppercase">Próximas (14 días)</span>
+          <div className="text-xl font-black font-mono text-amber-600 dark:text-amber-400 mt-1">
+            {upcomingReminders.length}
           </div>
         </div>
         <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
@@ -249,11 +363,9 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
           </div>
         </div>
         <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase">Promedio Asistencia</span>
+          <span className="text-[11px] font-bold text-slate-400 uppercase">Temas Abordados</span>
           <div className="text-xl font-black font-mono text-purple-600 dark:text-purple-400 mt-1">
-            {filteredCharlas.length > 0
-              ? Math.round(totalAsistentesGlobal / filteredCharlas.length)
-              : 0} / charla
+            {byTopicGroups.length}
           </div>
         </div>
       </div>
@@ -357,7 +469,7 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar por tema, institución educativa, disertante o localidad..."
+                placeholder="Buscar por fecha, tema, lugar/institución, disertante o localidad..."
                 className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -388,17 +500,24 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
             >
               <div>
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase font-mono">
-                      {ch.fecha}
-                    </span>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mt-0.5 line-clamp-2">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase font-mono">
+                        <Calendar className="w-3 h-3" />
+                        {ch.fecha}
+                      </span>
+                      {ch.hora && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md">
+                          <Clock className="w-3 h-3 text-blue-500" />
+                          {ch.hora} hs
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2">
                       {ch.temaTratado}
                     </h3>
                   </div>
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-mono shrink-0">
-                    {ch.cantidadAsistentes} asist.
-                  </span>
+                  {renderReminderBadge(ch)}
                 </div>
 
                 <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl space-y-1.5 text-xs">
@@ -412,7 +531,7 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                   </div>
                   <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
                     <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span>Disertante: {ch.personalDesignado}</span>
+                    <span>Disertante: {ch.personalDesignado || '-'}</span>
                   </div>
                 </div>
 
@@ -423,15 +542,28 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                 )}
               </div>
 
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-                <button
-                  onClick={() => ch.id && setDeleteTargetId(ch.id)}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-                  title="Eliminar charla"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+              {(perms.canEdit || perms.canDelete) && (
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-1.5">
+                  {perms.canEdit && (
+                    <button
+                      onClick={() => openEditModal(ch)}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                      title="Editar charla"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                  )}
+                  {perms.canDelete && (
+                    <button
+                      onClick={() => ch.id && setDeleteTargetId(ch.id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                      title="Eliminar charla"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
 
@@ -451,11 +583,11 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500 font-bold uppercase tracking-wider text-[11px]">
                   <th className="py-3 px-3">Fecha</th>
-                  <th className="py-3 px-3">Tema Tratado</th>
-                  <th className="py-3 px-3">Institución / Lugar</th>
+                  <th className="py-3 px-3">Hora</th>
                   <th className="py-3 px-3">Localidad</th>
-                  <th className="py-3 px-3">Disertante</th>
-                  <th className="py-3 px-3 text-right">Asistentes</th>
+                  <th className="py-3 px-3">Lugar / Institución</th>
+                  <th className="py-3 px-3">Tema</th>
+                  <th className="py-3 px-3">Disertante Designado</th>
                   <th className="py-3 px-3">Observaciones</th>
                   <th className="py-3 px-3 text-right">Acciones</th>
                 </tr>
@@ -464,36 +596,55 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                 {filteredCharlas.map((ch) => (
                   <tr key={ch.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                     <td className="py-2.5 px-3 font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                      {ch.fecha}
+                      <div className="flex items-center gap-1.5">
+                        <span>{ch.fecha}</span>
+                        {renderReminderBadge(ch)}
+                      </div>
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white max-w-xs">
-                      {ch.temaTratado}
-                    </td>
-                    <td className="py-2.5 px-3 font-medium text-slate-700 dark:text-slate-300">
-                      {ch.lugarInstitucion}
+                    <td className="py-2.5 px-3 font-mono font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                      {ch.hora ? `${ch.hora} hs` : '-'}
                     </td>
                     <td className="py-2.5 px-3">
                       <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono text-[11px]">
                         {ch.localidad}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
-                      {ch.personalDesignado}
+                    <td className="py-2.5 px-3 font-medium text-slate-700 dark:text-slate-300">
+                      {ch.lugarInstitucion}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      {ch.cantidadAsistentes}
+                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white max-w-xs">
+                      {ch.temaTratado}
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
+                      {ch.personalDesignado || '-'}
                     </td>
                     <td className="py-2.5 px-3 text-slate-500 italic max-w-xs truncate">
                       {ch.observaciones || '-'}
                     </td>
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => ch.id && setDeleteTargetId(ch.id)}
-                        className="text-slate-400 hover:text-rose-600 p-1"
-                        title="Eliminar"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        {perms.canEdit && (
+                          <button
+                            onClick={() => openEditModal(ch)}
+                            className="text-slate-400 hover:text-blue-600 p-1"
+                            title="Editar"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {perms.canDelete && (
+                          <button
+                            onClick={() => ch.id && setDeleteTargetId(ch.id)}
+                            className="text-slate-400 hover:text-rose-600 p-1"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {!perms.canEdit && !perms.canDelete && (
+                          <span className="text-[11px] text-slate-400">-</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -526,36 +677,46 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                     ({group.charlas.length} eventos registrados)
                   </span>
                 </div>
-                <div className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                  Total Asistentes: {group.totalAsistentes}
-                </div>
               </div>
 
               <div className="divide-y divide-slate-100 dark:divide-slate-800/60 p-2">
                 {group.charlas.map((ch) => (
                   <div
                     key={ch.id}
-                    className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 rounded-xl flex items-center justify-between text-xs"
+                    className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 rounded-xl flex items-center justify-between text-xs gap-3"
                   >
                     <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">{ch.fecha}</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
+                          {ch.fecha}{ch.hora ? ` • ${ch.hora} hs` : ''}
+                        </span>
                         <span className="font-bold text-slate-800 dark:text-slate-200">{ch.temaTratado}</span>
+                        {renderReminderBadge(ch)}
                       </div>
                       <div className="text-slate-500">
-                        {ch.lugarInstitucion} • Disertante: {ch.personalDesignado}
+                        {ch.lugarInstitucion} • Disertante: {ch.personalDesignado || '-'}
                       </div>
+                      {ch.observaciones && (
+                        <div className="text-[11px] text-slate-400 italic">"{ch.observaciones}"</div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-4 shrink-0">
-                      <span className="font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full text-xs">
-                        {ch.cantidadAsistentes} asistentes
-                      </span>
-                      <button
-                        onClick={() => ch.id && setDeleteTargetId(ch.id)}
-                        className="text-slate-400 hover:text-rose-600 p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {perms.canEdit && (
+                        <button
+                          onClick={() => openEditModal(ch)}
+                          className="text-slate-400 hover:text-blue-600 p-1"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {perms.canDelete && (
+                        <button
+                          onClick={() => ch.id && setDeleteTargetId(ch.id)}
+                          className="text-slate-400 hover:text-rose-600 p-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -586,11 +747,8 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                     {topic}
                   </h3>
                   <span className="text-xs text-slate-500">
-                    ({group.charlas.length} talleres realizados)
+                    ({group.charlas.length} charlas)
                   </span>
-                </div>
-                <div className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                  Asistencia Acumulada: {group.totalAsistentes}
                 </div>
               </div>
 
@@ -598,27 +756,42 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                 {group.charlas.map((ch) => (
                   <div
                     key={ch.id}
-                    className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 rounded-xl flex items-center justify-between text-xs"
+                    className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/30 rounded-xl flex items-center justify-between text-xs gap-3"
                   >
                     <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">{ch.fecha}</span>
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">{ch.lugarInstitucion} ({ch.localidad})</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-blue-600 dark:text-blue-400 font-bold">
+                          {ch.fecha}{ch.hora ? ` • ${ch.hora} hs` : ''}
+                        </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                          {ch.lugarInstitucion} ({ch.localidad})
+                        </span>
+                        {renderReminderBadge(ch)}
                       </div>
                       <div className="text-slate-500">
-                        Disertante designado: {ch.personalDesignado}
+                        Disertante designado: {ch.personalDesignado || '-'}
                       </div>
+                      {ch.observaciones && (
+                        <div className="text-[11px] text-slate-400 italic">"{ch.observaciones}"</div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-4 shrink-0">
-                      <span className="font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full text-xs">
-                        {ch.cantidadAsistentes} asist.
-                      </span>
-                      <button
-                        onClick={() => ch.id && setDeleteTargetId(ch.id)}
-                        className="text-slate-400 hover:text-rose-600 p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {perms.canEdit && (
+                        <button
+                          onClick={() => openEditModal(ch)}
+                          className="text-slate-400 hover:text-blue-600 p-1"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {perms.canDelete && (
+                        <button
+                          onClick={() => ch.id && setDeleteTargetId(ch.id)}
+                          className="text-slate-400 hover:text-rose-600 p-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -634,47 +807,70 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
         </div>
       )}
 
-      {/* Modal Nueva Charla */}
+      {/* Modal Charla Comunitaria (Strictly 7 fields) */}
       {isFormOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              Registrar Charla Comunitaria
+              {editingId ? 'Editar Charla Comunitaria' : 'Registrar Charla Comunitaria'}
             </h3>
 
             <form onSubmit={handleSave} className="space-y-3">
+              {/* 1. Fecha (DD/MM/AAAA) & 2. Hora */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Fecha (DD/MM/AAAA)
+                    Fecha (DD/MM/AAAA) *
                   </label>
                   <input
                     type="text"
                     value={fecha}
                     onChange={(e) => setFecha(e.target.value)}
+                    placeholder="DD/MM/AAAA"
+                    pattern="\d{2}/\d{2}/\d{4}"
+                    title="Formato requerido: DD/MM/AAAA"
                     required
                     className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Localidad
+                    Hora *
                   </label>
-                  <select
-                    value={localidad}
-                    onChange={(e) => setLocalidad(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  >
-                    {localidades.map((loc, i) => (
-                      <option key={i} value={loc}>{loc}</option>
-                    ))}
-                  </select>
+                  <input
+                    type="time"
+                    value={hora}
+                    onChange={(e) => setHora(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
                 </div>
               </div>
 
+              {/* 3. Localidad */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Lugar / Institución (*)
+                  Localidad *
+                </label>
+                <select
+                  value={localidad}
+                  onChange={(e) => setLocalidad(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                >
+                  {localidades.map((loc, i) => (
+                    <option key={i} value={loc}>{loc}</option>
+                  ))}
+                  {localidad && !localidades.includes(localidad) && (
+                    <option value={localidad}>{localidad}</option>
+                  )}
+                </select>
+              </div>
+
+              {/* 4. Lugar / Institución */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Lugar / Institución *
                 </label>
                 <input
                   type="text"
@@ -686,9 +882,10 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                 />
               </div>
 
+              {/* 5. Tema */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Tema Tratado (*)
+                  Tema *
                 </label>
                 <input
                   type="text"
@@ -700,32 +897,28 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Disertante Designado
-                  </label>
-                  <input
-                    type="text"
-                    value={personalDesignado}
-                    onChange={(e) => setPersonalDesignado(e.target.value)}
-                    placeholder="Efectivo a cargo..."
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Cantidad de Asistentes
-                  </label>
-                  <input
-                    type="number"
-                    value={cantidadAsistentes}
-                    onChange={(e) => setCantidadAsistentes(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
+              {/* 6. Disertante Designado */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Disertante Designado *
+                </label>
+                <input
+                  type="text"
+                  list="charlas-personal-options"
+                  value={personalDesignado}
+                  onChange={(e) => setPersonalDesignado(e.target.value)}
+                  placeholder="Efectivo policial designado..."
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+                <datalist id="charlas-personal-options">
+                  {personalList.map((p) => (
+                    <option key={p.id} value={`${p.jerarquia} ${p.apellidoNombre}`} />
+                  ))}
+                </datalist>
               </div>
 
+              {/* 7. Observaciones */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Observaciones
@@ -734,6 +927,7 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                   value={observaciones}
                   onChange={(e) => setObservaciones(e.target.value)}
                   rows={2}
+                  placeholder="Notas adicionales o detalles del evento..."
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
@@ -741,7 +935,10 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsFormOpen(false)}
+                  onClick={() => {
+                    setIsFormOpen(false);
+                    setEditingId(null);
+                  }}
                   className="px-3 py-1.5 text-xs text-slate-500"
                 >
                   Cancelar
@@ -750,7 +947,7 @@ export const CharlasModule: React.FC<CharlasModuleProps> = ({
                   type="submit"
                   className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl"
                 >
-                  Guardar Charla
+                  {editingId ? 'Guardar Cambios' : 'Guardar Charla'}
                 </button>
               </div>
             </form>

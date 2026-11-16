@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Wrench, Plus, Save, Trash2, DollarSign } from 'lucide-react';
 import { Movil, Reparacion } from '../../types/sgp';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface ReparacionesModalProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ export const ReparacionesModal: React.FC<ReparacionesModalProps> = ({
   onSaveReparacion,
   onDeleteReparacion
 }) => {
+  const perms = usePermissions();
   const [showAddForm, setShowAddForm] = useState(false);
   const [fecha, setFecha] = useState(new Date().toLocaleDateString('es-AR'));
   const [tallerMecanico, setTallerMecanico] = useState('');
@@ -34,6 +36,7 @@ export const ReparacionesModal: React.FC<ReparacionesModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!perms.canCreate) return;
 
     const nuevaReparacion: Reparacion = {
       movilId: movil.id || 0,
@@ -95,13 +98,15 @@ export const ReparacionesModal: React.FC<ReparacionesModalProps> = ({
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
               Detalle de Trabajos y Mantenimiento
             </span>
-            <button
-              onClick={() => setShowAddForm(!showAddForm)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Registrar Reparación</span>
-            </button>
+            {perms.canCreate && (
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Registrar Reparación</span>
+              </button>
+            )}
           </div>
 
           {/* Form to add repair */}
@@ -215,7 +220,7 @@ export const ReparacionesModal: React.FC<ReparacionesModalProps> = ({
                       <span className="font-bold text-blue-600 font-mono text-xs">
                         $ {r.costoTotal.toLocaleString('es-AR')}
                       </span>
-                      {r.id && (
+                      {r.id && perms.canDelete && (
                         <button
                           onClick={() => onDeleteReparacion(r.id!)}
                           className="p-1 text-slate-400 hover:text-rose-600"

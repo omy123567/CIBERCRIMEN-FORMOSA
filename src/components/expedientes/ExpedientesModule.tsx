@@ -30,6 +30,7 @@ import { AttachmentZoomModal } from '../common/AttachmentZoomModal';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { exportIndividualJson } from '../../utils/sgpBackupZip';
 import { sgpManager } from '../../db/dexieDb';
+import { usePermissions } from '../../context/PermissionsContext';
 
 interface ExpedientesModuleProps {
   expedientes: Expediente[];
@@ -52,6 +53,8 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
   delegacionId,
   onNavigate
 }) => {
+  const perms = usePermissions();
+  const effectiveCanDelete = canDelete && perms.canDelete;
 
   // Navigation tab: 'all' | 'faltaOficio' | 'ppi'
   const [activeTab, setActiveTab] = useState<'all' | 'faltaOficio' | 'ppi'>('all');
@@ -314,6 +317,7 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
 
   // Actions
   const handleSaveExpediente = async (expData: Expediente) => {
+    if (expData.id ? !perms.canEdit : !perms.canCreate) return;
     const db = (await import('../../db/dexieDb')).db;
     if (expData.id) {
       await db.expedientes.put(expData);
@@ -325,6 +329,7 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
   };
 
   const handleDeleteExpediente = async () => {
+    if (!effectiveCanDelete) return;
     if (deleteTargetId) {
       const db = (await import('../../db/dexieDb')).db;
       await db.expedientes.delete(deleteTargetId);
@@ -339,6 +344,7 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
     sourceCaseIds: number[],
     personsToSave: PersonaInvestigada[]
   ) => {
+    if (!perms.canEdit || !effectiveCanDelete) return;
     const db = (await import('../../db/dexieDb')).db;
     // 1. Add single consolidated record
     await db.expedientes.add(consolidatedCase as Expediente);
@@ -379,6 +385,7 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
   };
 
   const handleOpenNewSinOficio = () => {
+    if (!perms.canCreate) return;
     setEditingExpediente({
       nroExpediente: 'S/N',
       anio: new Date().getFullYear(),
@@ -456,59 +463,68 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
 
         <div className="flex items-center gap-2 flex-wrap">
           {/* Combinar Expedientes Registrados Button */}
-          <button
-            onClick={() => setIsCombineModalOpen(true)}
-            disabled={selectedCaseIds.length < 2}
-            className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-sm ${
-              selectedCaseIds.length >= 2
-                ? 'bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
-            }`}
-            title="Seleccione 2 o más expedientes para combinarlos en un único registro depurando los originales"
-          >
-            <Merge className="w-4 h-4" />
-            <span>Combinar ({selectedCaseIds.length})</span>
-          </button>
+          {perms.canEdit && effectiveCanDelete && (
+            <button
+              onClick={() => setIsCombineModalOpen(true)}
+              disabled={selectedCaseIds.length < 2}
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-sm ${
+                selectedCaseIds.length >= 2
+                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-700'
+              }`}
+              title="Seleccione 2 o más expedientes para combinarlos en un único registro depurando los originales"
+            >
+              <Merge className="w-4 h-4" />
+              <span>Combinar ({selectedCaseIds.length})</span>
+            </button>
+          )}
 
           {/* Libro PDF con modal de configuración y vista previa */}
-          <button
-            onClick={() => setIsLibroModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl transition-colors shadow-xs"
-            title="Generar Libro de Registro de Expedientes Oficial (Filtrable por tiempo y N° inicial)"
-          >
-            <Download className="w-3.5 h-3.5 text-blue-600" />
-            <span>Libro PDF</span>
-          </button>
+          {perms.canExport && (
+            <>
+              <button
+                onClick={() => setIsLibroModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl transition-colors shadow-xs"
+                title="Generar Libro de Registro de Expedientes Oficial (Filtrable por tiempo y N° inicial)"
+              >
+                <Download className="w-3.5 h-3.5 text-blue-600" />
+                <span>Libro PDF</span>
+              </button>
 
-          <button
-            onClick={() => exportIndividualJson('Expedientes', expedientes)}
-            className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl transition-colors shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Exportar JSON</span>
-          </button>
+              <button
+                onClick={() => exportIndividualJson('Expedientes', expedientes)}
+                className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 rounded-xl transition-colors shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Exportar JSON</span>
+              </button>
+            </>
+          )}
 
-          {/* Botón directo para causas SIN OFICIO */}
-          <button
-            onClick={handleOpenNewSinOficio}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-md transition-all active:scale-95"
-            title="Registrar una nueva actuación operativa urgente sin oficio previo"
-          >
-            <AlertTriangle className="w-4 h-4" />
-            <span>+ Nueva Causa Sin Oficio</span>
-          </button>
+          {/* Botón directo para causas SIN OFICIO y Nuevo Expediente */}
+          {perms.canCreate && (
+            <>
+              <button
+                onClick={handleOpenNewSinOficio}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-md transition-all active:scale-95"
+                title="Registrar una nueva actuación operativa urgente sin oficio previo"
+              >
+                <AlertTriangle className="w-4 h-4" />
+                <span>+ Nueva Causa Sin Oficio</span>
+              </button>
 
-          {/* Botón clásico Nuevo Expediente con Oficio */}
-          <button
-            onClick={() => {
-              setEditingExpediente(null);
-              setIsFormOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Nuevo Expediente</span>
-          </button>
+              <button
+                onClick={() => {
+                  setEditingExpediente(null);
+                  setIsFormOpen(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Nuevo Expediente</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -714,18 +730,20 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/50 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="py-3 px-3 w-10 text-center">
-                    <input
-                      type="checkbox"
-                      checked={
-                        filteredExpedientes.length > 0 &&
-                        selectedCaseIds.length === filteredExpedientes.length
-                      }
-                      onChange={handleSelectAllFiltered}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                      title="Seleccionar todos para combinar"
-                    />
-                  </th>
+                  {perms.canEdit && effectiveCanDelete && (
+                    <th className="py-3 px-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={
+                          filteredExpedientes.length > 0 &&
+                          selectedCaseIds.length === filteredExpedientes.length
+                        }
+                        onChange={handleSelectAllFiltered}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        title="Seleccionar todos para combinar"
+                      />
+                    </th>
+                  )}
                   <th className="py-3 px-4">Expediente</th>
                   <th className="py-3 px-4">Ingreso / Carátula</th>
                   <th className="py-3 px-4">Requerimiento & Personas</th>
@@ -763,14 +781,16 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
                       }`}
                     >
                       {/* Selection checkbox */}
-                      <td className="py-3 px-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => exp.id && toggleSelectCase(exp.id)}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                        />
-                      </td>
+                      {perms.canEdit && effectiveCanDelete && (
+                        <td className="py-3 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => exp.id && toggleSelectCase(exp.id)}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                          />
+                        </td>
+                      )}
 
                       {/* Expediente N° & Alertas */}
                       <td className="py-3 px-4 whitespace-nowrap">
@@ -921,7 +941,7 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Recepcionar Oficio Modal button for Falta de Oficio */}
-                          {custom.isFaltaOficio && (
+                          {custom.isFaltaOficio && perms.canEdit && (
                             <button
                               onClick={() => setReceivingExpediente(exp)}
                               className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/70 dark:text-emerald-300 rounded-lg transition-colors shadow-xs"
@@ -932,18 +952,20 @@ export const ExpedientesModule: React.FC<ExpedientesModuleProps> = ({
                             </button>
                           )}
 
-                          <button
-                            onClick={() => {
-                              setEditingExpediente(exp);
-                              setIsFormOpen(true);
-                            }}
-                            className="p-1.5 text-slate-600 hover:text-blue-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            title="Editar Expediente"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
+                          {perms.canEdit && (
+                            <button
+                              onClick={() => {
+                                setEditingExpediente(exp);
+                                setIsFormOpen(true);
+                              }}
+                              className="p-1.5 text-slate-600 hover:text-blue-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                              title="Editar Expediente"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                          )}
 
-                          {canDelete && (
+                          {effectiveCanDelete && (
                             <button
                               onClick={() => exp.id && setDeleteTargetId(exp.id)}
                               className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"

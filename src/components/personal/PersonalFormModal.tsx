@@ -82,6 +82,7 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
   const [plaza, setPlaza] = useState('');
   const [apellidoNombre, setApellidoNombre] = useState('');
   const [dni, setDni] = useState('');
+  const [cedulaProvincial, setCedulaProvincial] = useState('');
   const [sexo, setSexo] = useState<'M' | 'F' | 'OTRO'>('M');
   const [fechaNacimiento, setFechaNacimiento] = useState('');
   const [estadoCivil, setEstadoCivil] = useState('Soltero/a');
@@ -166,6 +167,7 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
           setDomicilio(c.domicilio || '');
           setLocalidad(c.localidad || '');
           setChapaPlaca(c.chapaPlaca || '');
+          setCedulaProvincial(c.cedulaProvincial || initialData.cedulaProvincial || '');
           const s = (c.sexo || 'M').toUpperCase();
           if (s.startsWith('F')) setSexo('F');
           else if (s === 'OTRO') setSexo('OTRO');
@@ -225,6 +227,7 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
       setDomicilio('');
       setLocalidad(localidades[0] || 'Laguna Blanca');
       setChapaPlaca('');
+      setCedulaProvincial('');
 
       setLicenciaNumero('');
       setLicenciaCategorias(['B1']);
@@ -312,6 +315,7 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
 
     const customFields: PersonalCustomFields = {
       ...existingCustom,
+      cedulaProvincial: cedulaProvincial.trim(),
       telefono,
       domicilio,
       localidad,
@@ -346,6 +350,7 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
       plaza: plaza || 'PL-000',
       apellidoNombre: apellidoNombre.trim(),
       dni: dni.replace(/\D/g, ''),
+      cedulaProvincial: cedulaProvincial.trim(),
       fechaNacimiento,
       fechaIngreso,
       grupo: grupo || 'Guardia A',
@@ -448,7 +453,7 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
             {/* TAB 1: DATOS PERSONALES */}
             {activeTab === 1 && (
               <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                       Apellido y Nombres (*)
@@ -474,6 +479,19 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
                       onChange={(e) => setDni(e.target.value.replace(/\D/g, ''))}
                       placeholder="ej. 32450891"
                       required
+                      className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      N° Cédula Provincial
+                    </label>
+                    <input
+                      type="text"
+                      value={cedulaProvincial}
+                      onChange={(e) => setCedulaProvincial(e.target.value)}
+                      placeholder="ej. CP-84912 / F-4512"
                       className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                     />
                   </div>
@@ -836,6 +854,28 @@ export const PersonalFormModal: React.FC<PersonalFormModalProps> = ({
                         value={numeroCredencial}
                         onChange={(e) => setNumeroCredencial(e.target.value)}
                         placeholder="ej. 00-1234567-0"
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    Cédula Policial e Identificación Provincial
+                  </h3>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        N° Cédula Provincial
+                      </label>
+                      <input
+                        type="text"
+                        value={cedulaProvincial}
+                        onChange={(e) => setCedulaProvincial(e.target.value)}
+                        placeholder="ej. CP-84912 / F-4512"
                         className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                       />
                     </div>

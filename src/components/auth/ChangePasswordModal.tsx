@@ -47,7 +47,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     setLoading(true);
     try {
       if (!currentUser.id) throw new Error('ID de usuario inválido');
-      await sgpManager.changePassword(currentUser.id, newPass);
+      await sgpManager.changePassword(currentUser.id, newPass, currentPass);
       const updated = { ...currentUser, password: newPass };
       localStorage.setItem('sispol_current_user', JSON.stringify(updated));
       setSuccess(true);

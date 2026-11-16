@@ -122,7 +122,16 @@ export const PersonalFichaPdfModal: React.FC<PersonalFichaPdfModalProps> = ({
                   {personal.jerarquia} {personal.apellidoNombre}
                 </span>
                 <span className="text-[11px] text-slate-500 font-mono">
-                  DNI: {personal.dni} • Plaza: {personal.plaza} • {personal.grupo || 'Sin grupo'}
+                  DNI: {personal.dni}
+                  {(() => {
+                    try {
+                      const c = personal.customFieldsJson ? JSON.parse(personal.customFieldsJson) : {};
+                      const cp = c.cedulaProvincial || personal.cedulaProvincial;
+                      return cp ? ` • C.P.: ${cp}` : '';
+                    } catch {
+                      return personal.cedulaProvincial ? ` • C.P.: ${personal.cedulaProvincial}` : '';
+                    }
+                  })()} • Plaza: {personal.plaza} • {personal.grupo || 'Sin grupo'}
                 </span>
               </div>
               <span
