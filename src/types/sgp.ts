@@ -373,7 +373,7 @@ export interface SisPolUser {
   nombreApellido: string;
   email: string;
   username: string;
-  password: string;
+  password?: string;
   rol: UserRole;
   delegacionId: number;
   canCreate?: boolean;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
 import { ExecutiveDashboard } from './components/dashboard/ExecutiveDashboard';
@@ -42,9 +42,12 @@ import {
   FolioRegistro
 } from './types/sgp';
 import { initialInstitutionalConfig } from './db/sgpInitialData';
-import { sgpManager, db, getAuditHeaders } from './db/dexieDb';
+import { sgpManager, db, apiFetch, sanitizeClientUser, setSessionToken } from './db/dexieDb';
 import { getUpcomingCharlasReminders } from './utils/charlaReminders';
-import { BellRing, Calendar, X } from 'lucide-react';
+import { BellRing, Calendar, X, ShieldAlert } from 'lucide-react';
+
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const IDLE_WARNING_MS = 29 * 60 * 1000;
 
 export default function App() {
   // Authentication & Session
@@ -52,7 +55,7 @@ export default function App() {
     try {
       const stored = localStorage.getItem('sispol_current_user');
       if (!stored) return null;
-      const parsed = JSON.parse(stored);
+      const parsed = sanitizeClientUser(JSON.parse(stored));
       if (typeof parsed.allowedModules === 'string') {
         try { parsed.allowedModules = JSON.parse(parsed.allowedModules); } catch { parsed.allowedModules = []; }
       }
@@ -64,6 +67,8 @@ export default function App() {
       return null;
     }
   });
+  const [idleWarningSeconds, setIdleWarningSeconds] = useState<number | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
 
   // Delegations & Active Delegation
   const [delegaciones, setDelegaciones] = useState<SisPolDelegacion[]>([]);
@@ -188,30 +193,118 @@ export default function App() {
   };
 
   // Handle User Login
-  const handleLoginSuccess = (user: SisPolUser) => {
-    setCurrentUser(user);
-    const initialDel = user.delegacionId || 1;
+  const handleLoginSuccess = async (user: SisPolUser) => {
+    const clean = sanitizeClientUser(user);
+    lastActivityRef.current = Date.now();
+    setIdleWarningSeconds(null);
+    setCurrentUser(clean);
+    const initialDel = clean.delegacionId || 1;
     setActiveDelegacionId(initialDel);
-    refreshData(initialDel);
+    await sgpManager.syncWithServer();
+    await refreshData(initialDel);
   };
 
   // Handle User Logout
-  const handleLogout = () => {
-    if (currentUser) {
-      sgpManager.logAudit({
+  const handleLogout = useCallback(async (reason?: 'idle' | 'manual') => {
+    if (reason === 'idle' && currentUser) {
+      await sgpManager.logAudit({
         categoria: 'ACCESO',
-        operacion: 'LOGOUT',
+        operacion: 'LOGOUT_INACTIVIDAD',
         modulo: 'Autenticación',
         entidad: 'users',
         entidadId: String(currentUser.id || ''),
-        descripcion: `Cierre de sesión de ${currentUser.username} (${currentUser.nombreApellido})`,
+        descripcion: `Cierre automático de sesión por inactividad de ${currentUser.username} (${currentUser.nombreApellido})`,
         delegacionId: activeDelegacionId
       });
     }
-    localStorage.removeItem('sispol_current_user');
+    await sgpManager.logoutServer();
+    setIdleWarningSeconds(null);
     setCurrentUser(null);
     setCurrentModule('dashboard');
-  };
+  }, [currentUser, activeDelegacionId]);
+
+  // Listen to global 401 unauthorized events from apiFetch
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setSessionToken(null);
+      try { localStorage.removeItem('sispol_current_user'); } catch {}
+      setIdleWarningSeconds(null);
+      setCurrentUser(null);
+      setCurrentModule('dashboard');
+    };
+    window.addEventListener('sispol:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('sispol:unauthorized', onUnauthorized);
+  }, []);
+
+  // Verify persisted session against /api/auth/me on mount & sync authoritative permissions
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+    apiFetch('/api/auth/me')
+      .then(async (res) => {
+        if (!res.ok) return;
+        const freshUser = sanitizeClientUser(await res.json());
+        if (cancelled || !freshUser?.id) return;
+        localStorage.setItem('sispol_current_user', JSON.stringify(freshUser));
+        setCurrentUser(freshUser);
+        if (
+          freshUser.rol !== 'superusuario' &&
+          Array.isArray(freshUser.allowedDelegacionIds) &&
+          freshUser.allowedDelegacionIds.length > 0 &&
+          !freshUser.allowedDelegacionIds.includes(activeDelegacionId)
+        ) {
+          setActiveDelegacionId(freshUser.delegacionId || freshUser.allowedDelegacionIds[0]);
+        }
+      })
+      .catch(() => {
+        // offline gracefully keeps cached session
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Run only once per authenticated session hydration
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Boolean(currentUser)]);
+
+  // Idle Auto-Logout (30 min inactivity with 60s countdown warning)
+  useEffect(() => {
+    if (!currentUser) {
+      setIdleWarningSeconds(null);
+      return;
+    }
+
+    lastActivityRef.current = Date.now();
+    let lastTouchWrite = Date.now();
+
+    const recordActivity = () => {
+      const now = Date.now();
+      if (now - lastTouchWrite < 1000) return;
+      lastTouchWrite = now;
+      lastActivityRef.current = now;
+      setIdleWarningSeconds((prev) => (prev !== null ? null : prev));
+    };
+
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((ev) => window.addEventListener(ev, recordActivity, { passive: true }));
+
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      if (elapsed >= IDLE_TIMEOUT_MS) {
+        clearInterval(timer);
+        handleLogout('idle');
+      } else if (elapsed >= IDLE_WARNING_MS) {
+        const secsLeft = Math.max(1, Math.ceil((IDLE_TIMEOUT_MS - elapsed) / 1000));
+        setIdleWarningSeconds(secsLeft);
+      } else {
+        setIdleWarningSeconds((prev) => (prev !== null ? null : prev));
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      events.forEach((ev) => window.removeEventListener(ev, recordActivity));
+    };
+  }, [currentUser, handleLogout]);
 
   // Handle Save Quick Expediente
   const handleSaveQuickExpediente = async (newExp: Expediente) => {
@@ -223,9 +316,10 @@ export default function App() {
     refreshData();
   };
 
-  // Pull server-stored nav modules configuration on mount (auto-merging newly introduced default modules)
+  // Pull server-stored nav modules configuration when authenticated
   useEffect(() => {
-    fetch('/api/settings/nav-modules')
+    if (!currentUser) return;
+    apiFetch('/api/settings/nav-modules')
       .then((res) => (res.ok ? res.json() : null))
       .then((serverMods) => {
         if (Array.isArray(serverMods) && serverMods.length > 0) {
@@ -239,15 +333,15 @@ export default function App() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [Boolean(currentUser)]);
 
   // Handle Save Nav Modules Configuration
   const handleSaveNavModules = (modules: NavModuleItem[]) => {
     setNavModulesConfig(modules);
     localStorage.setItem('sispol_nav_modules', JSON.stringify(modules));
-    fetch('/api/settings/nav-modules', {
+    apiFetch('/api/settings/nav-modules', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(modules)
     }).catch((err) => {
       console.warn('Failed to sync nav-modules to server:', err);
@@ -382,7 +476,7 @@ export default function App() {
         activeDelegacionId={activeDelegacionId}
         onChangeDelegacion={handleChangeDelegacion}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
-        onLogout={handleLogout}
+        onLogout={() => handleLogout('manual')}
         isDarkMode={isDarkMode}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
         onOpenModuleAdmin={canAdminModules ? () => setIsModuleAdminOpen(true) : undefined}
@@ -706,6 +800,34 @@ export default function App() {
               Ver en Charlas
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Idle Session Timeout Warning Banner */}
+      {idleWarningSeconds !== null && (
+        <div className="fixed bottom-4 left-4 z-50 max-w-md w-[calc(100%-2rem)] bg-slate-900 border-2 border-amber-500 text-white rounded-2xl p-4 shadow-2xl flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div className="text-xs">
+              <div className="font-bold text-amber-300">Sesión próxima a expirar por inactividad</div>
+              <div className="text-slate-300">
+                Cierre automático en <span className="font-mono font-bold text-white">{idleWarningSeconds}s</span>.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              lastActivityRef.current = Date.now();
+              setIdleWarningSeconds(null);
+              apiFetch('/api/auth/me').catch(() => {});
+            }}
+            className="px-3 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl shrink-0"
+          >
+            Continuar sesión
+          </button>
         </div>
       )}
 

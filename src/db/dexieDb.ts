@@ -22,21 +22,66 @@ import {
 } from '../types/sgp';
 import { initialSgpBackup, initialInstitutionalConfig } from './sgpInitialData';
 
-export function getAuditHeaders(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
+const SESSION_TOKEN_KEY = 'sispol_session_token';
+
+export function getSessionToken(): string | null {
+  if (typeof window === 'undefined') return null;
   try {
-    const raw = localStorage.getItem('sispol_current_user');
-    if (!raw) return {};
-    const u = JSON.parse(raw);
-    return {
-      'X-Audit-User': encodeURIComponent(String(u.username || 'sistema')),
-      'X-Audit-User-Name': encodeURIComponent(String(u.nombreApellido || '')),
-      'X-Audit-User-Role': encodeURIComponent(String(u.rol || '')),
-      'X-Audit-Delegacion': String(u.delegacionId || 1)
-    };
+    return sessionStorage.getItem(SESSION_TOKEN_KEY);
   } catch {
-    return {};
+    return null;
   }
+}
+
+export function setSessionToken(token: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (token) {
+      sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+    } else {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    }
+  } catch {}
+}
+
+export function getSessionHeaders(): Record<string, string> {
+  const token = getSessionToken();
+  return token ? { 'X-Sispol-Session': token } : {};
+}
+
+export function sanitizeClientUser<T extends Record<string, any>>(u: T): T {
+  if (!u || typeof u !== 'object') return u;
+  const { password: _pw, sessionToken: _st, ...rest } = u;
+  return rest as T;
+}
+
+export function getAuditHeaders(): Record<string, string> {
+  return getSessionHeaders();
+}
+
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers || undefined);
+  const sessionHeaders = getSessionHeaders();
+  Object.entries(sessionHeaders).forEach(([k, v]) => {
+    if (!headers.has(k)) headers.set(k, v);
+  });
+
+  const res = await fetch(input, {
+    ...init,
+    credentials: 'include',
+    headers
+  });
+
+  const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  if (res.status === 401 && !urlStr.includes('/api/auth/login') && !urlStr.includes('/api/auth/logout')) {
+    setSessionToken(null);
+    try { localStorage.removeItem('sispol_current_user'); } catch {}
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sispol:unauthorized'));
+    }
+  }
+
+  return res;
 }
 import {
   PeriodDateRange,
@@ -222,11 +267,21 @@ class SgpManager {
   private hooksConfigured = false;
   private isSyncingFromServer = false;
 
+  private hasActiveClientSession(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+      return Boolean(localStorage.getItem('sispol_current_user') || getSessionToken());
+    } catch {
+      return Boolean(getSessionToken());
+    }
+  }
+
   public async syncWithServer(): Promise<boolean> {
     if (this.isSyncingFromServer) return false;
+    if (!this.hasActiveClientSession()) return false;
     this.isSyncingFromServer = true;
     try {
-      const res = await fetch('/api/sync/all');
+      const res = await apiFetch('/api/sync/all');
       if (!res.ok) return false;
       const data = await res.json();
 
@@ -305,14 +360,23 @@ class SgpManager {
         }
       });
 
-      // Also sync users
+      // Sync users only if current session has user-management privileges
       try {
-        const uRes = await fetch('/api/users');
-        if (uRes.ok) {
-          const uList = await uRes.json();
-          if (Array.isArray(uList) && uList.length > 0) {
-            await db.users.clear();
-            await db.users.bulkAdd(uList);
+        const storedRaw = localStorage.getItem('sispol_current_user');
+        const cu = storedRaw ? JSON.parse(storedRaw) : null;
+        const canPullUsers = cu && (
+          cu.rol === 'superusuario' ||
+          cu.rol === 'Administrador' ||
+          (Array.isArray(cu.allowedModules) && cu.allowedModules.includes('usuarios'))
+        );
+        if (canPullUsers) {
+          const uRes = await apiFetch('/api/users');
+          if (uRes.ok) {
+            const uList = await uRes.json();
+            if (Array.isArray(uList) && uList.length > 0) {
+              await db.users.clear();
+              await db.users.bulkAdd(uList.map((u: any) => sanitizeClientUser(u)));
+            }
           }
         }
       } catch {
@@ -334,11 +398,11 @@ class SgpManager {
 
     const sendMutation = (endpoint: string, method: string, body?: any) => {
       if (this.isSyncingFromServer) return; // Prevent mutation storms during server sync
-      fetch(endpoint, {
+      if (!this.hasActiveClientSession()) return;
+      apiFetch(endpoint, {
         method,
         headers: {
-          'Content-Type': 'application/json',
-          ...getAuditHeaders()
+          'Content-Type': 'application/json'
         },
         body: body ? JSON.stringify(body) : undefined
       }).catch((err) => {
@@ -480,14 +544,18 @@ class SgpManager {
       sendMutation(`/api/roles/${primKey}`, 'DELETE');
     });
 
-    // Periodical background pull every 20 seconds
+    // Periodical background pull every 20 seconds when authenticated
     setInterval(() => {
-      this.syncWithServer();
+      if (this.hasActiveClientSession()) {
+        this.syncWithServer();
+      }
     }, 20000);
 
-    // Pull immediately when user refocuses window
+    // Pull immediately when user refocuses window when authenticated
     window.addEventListener('focus', () => {
-      this.syncWithServer();
+      if (this.hasActiveClientSession()) {
+        this.syncWithServer();
+      }
     });
   }
 
@@ -555,7 +623,6 @@ class SgpManager {
         nombreApellido: 'Superintendente Forense D.G.P.C.',
         email: 'superadmin.dgpc@formosa.gov.ar',
         username: 'superadmin',
-        password: 'admin123',
         rol: 'superusuario',
         delegacionId: 1,
         canCreate: true,
@@ -573,7 +640,6 @@ class SgpManager {
         nombreApellido: 'Crio. Insp. Lic. Gómez, Roberto M.',
         email: 'pol.delgcrimlagunablanca@formosa.gov.ar',
         username: 'admin.lb',
-        password: 'policia2026',
         rol: 'Administrador',
         delegacionId: 1,
         canCreate: true,
@@ -591,7 +657,6 @@ class SgpManager {
         nombreApellido: 'Cabo 1° Sosa, Andrea Beatríz',
         email: 'andrea.sosa@formosa.gov.ar',
         username: 'operador.lb',
-        password: 'operador123',
         rol: 'Operador',
         delegacionId: 1,
         canCreate: true,
@@ -609,7 +674,6 @@ class SgpManager {
         nombreApellido: 'Comisario Villamayor, Carlos',
         email: 'pol.delgcrimclorinda@formosa.gov.ar',
         username: 'admin.clorinda',
-        password: 'policia2026',
         rol: 'Administrador',
         delegacionId: 2,
         canCreate: true,
@@ -620,24 +684,6 @@ class SgpManager {
         canResetCounters: true,
         allowedModules: allModules.filter(m => m !== 'modulos' && m !== 'auditoria'),
         allowedDelegacionIds: [2],
-        canAdminModules: true
-      },
-      {
-        id: 5,
-        nombreApellido: 'Administrador General S.I.S.D.I.C.',
-        email: 'admin@sisdic.gob.ar',
-        username: 'admin',
-        password: 'adminpassword',
-        rol: 'superusuario',
-        delegacionId: 1,
-        canCreate: true,
-        canEdit: true,
-        canDelete: true,
-        readOnly: false,
-        canExport: true,
-        canResetCounters: true,
-        allowedModules: allModules,
-        allowedDelegacionIds: [1, 2, 3, 4, 5],
         canAdminModules: true
       }
     ];
@@ -793,42 +839,70 @@ class SgpManager {
   // --- Multi-User Management ---
   public async getUsers(): Promise<SisPolUser[]> {
     await this.initialize();
-    return await db.users.toArray();
+    try {
+      const res = await apiFetch('/api/users');
+      if (res.ok) {
+        const list = await res.json();
+        if (Array.isArray(list)) {
+          const sanitized = list.map((u: any) => sanitizeClientUser(u));
+          await db.users.clear();
+          await db.users.bulkAdd(sanitized);
+          return sanitized;
+        }
+      }
+    } catch {
+      // Fallback to cached local users when offline
+    }
+    const local = await db.users.toArray();
+    return local.map((u) => sanitizeClientUser(u));
   }
 
   public async addUser(user: SisPolUser): Promise<number> {
     await this.initialize();
-    const id = await db.users.add(user);
-    fetch('/api/users', {
+    const res = await apiFetch('/api/users', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
-      body: JSON.stringify({ ...user, id })
-    }).catch(() => {});
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user)
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || 'No se pudo registrar el usuario.');
+    }
+    const newId = Number(body.id) || user.id;
+    const sanitized = sanitizeClientUser({ ...user, id: newId });
+    const storedId = await db.users.put(sanitized);
     this.notify();
-    return id;
+    return Number(newId || storedId);
   }
 
   public async updateUser(id: number, changes: Partial<SisPolUser>): Promise<void> {
     await this.initialize();
-    await db.users.update(id, changes);
-    const updated = await db.users.get(id);
-    if (updated) {
-      fetch(`/api/users/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
-        body: JSON.stringify(updated)
-      }).catch(() => {});
+    const existing = await db.users.get(id);
+    const payload = { ...existing, ...changes, id };
+    const res = await apiFetch(`/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || 'No se pudo actualizar el usuario.');
     }
+    const sanitized = sanitizeClientUser(changes);
+    await db.users.update(id, sanitized);
     this.notify();
   }
 
   public async deleteUser(id: number): Promise<void> {
     await this.initialize();
+    const res = await apiFetch(`/api/users/${id}`, {
+      method: 'DELETE'
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || 'No se pudo eliminar el usuario.');
+    }
     await db.users.delete(id);
-    fetch(`/api/users/${id}`, {
-      method: 'DELETE',
-      headers: { ...getAuditHeaders() }
-    }).catch(() => {});
     this.notify();
   }
 
@@ -842,10 +916,11 @@ class SgpManager {
     detalles?: any;
     delegacionId?: number;
   }): Promise<void> {
+    if (!this.hasActiveClientSession()) return;
     try {
-      await fetch('/api/audit-logs', {
+      await apiFetch('/api/audit-logs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(entry)
       });
     } catch {
@@ -853,67 +928,79 @@ class SgpManager {
     }
   }
 
-  public async authenticate(username: string, pass: string): Promise<SisPolUser | null> {
+  public async authenticate(
+    username: string,
+    pass: string
+  ): Promise<{ user?: SisPolUser; error?: string }> {
     const cleanUser = username.trim();
-    // 1. Primary verification: query central server /api/auth/login immediately
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: cleanUser, password: pass })
       });
-      if (res.ok) {
-        const serverUser: SisPolUser = await res.json();
-        if (serverUser && serverUser.id) {
-          try {
-            await db.open();
-            await db.users.put(serverUser);
-          } catch {}
-          return serverUser;
-        }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          error: data.error || 'Credenciales inválidas. Verifique usuario y contraseña.'
+        };
       }
+      if (data.sessionToken) {
+        setSessionToken(String(data.sessionToken));
+      }
+      const cleanObj = sanitizeClientUser(data) as SisPolUser;
+      if (typeof cleanObj.allowedModules === 'string') {
+        try { cleanObj.allowedModules = JSON.parse(cleanObj.allowedModules); } catch { cleanObj.allowedModules = []; }
+      }
+      if (typeof cleanObj.allowedDelegacionIds === 'string') {
+        try { cleanObj.allowedDelegacionIds = JSON.parse(cleanObj.allowedDelegacionIds); } catch { cleanObj.allowedDelegacionIds = [cleanObj.delegacionId || 1]; }
+      }
+      if (cleanObj && cleanObj.id) {
+        try {
+          await db.open();
+          await db.users.put(cleanObj);
+        } catch {}
+      }
+      return { user: cleanObj };
     } catch {
-      // ignore network errors and fallback to local database
+      return {
+        error: 'No se pudo conectar con el servidor de autenticación central.'
+      };
     }
+  }
 
-    // 2. Offline Fallback: check local IndexedDB
+  public async logoutServer(): Promise<void> {
     try {
-      await db.open();
-      const localUsers = await db.users.toArray();
-      const u = localUsers.find(
-        (usr) =>
-          usr.username.toLowerCase() === cleanUser.toLowerCase() &&
-          (usr.password === pass || (cleanUser.toLowerCase() === 'admin' && (pass === 'admin123' || pass === 'adminpassword' || pass === 'admin')))
-      );
-      if (u) {
-        return u;
-      }
-    } catch {}
-
-    return null;
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore network errors on logout
+    } finally {
+      setSessionToken(null);
+      try { localStorage.removeItem('sispol_current_user'); } catch {}
+    }
   }
 
   public async changePassword(userId: number, newPass: string, oldPass?: string): Promise<boolean> {
     await this.initialize();
-    const u = await db.users.get(userId);
-    if (!u) return false;
-    await db.users.update(userId, { password: newPass });
-    try {
-      await fetch('/api/auth/change-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuditHeaders()
-        },
-        body: JSON.stringify({
-          userId,
-          oldPassword: oldPass ?? u.password,
-          newPassword: newPass
-        })
-      });
-    } catch {
-      // Offline fallback: local update already succeeded
+    const res = await apiFetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        userId,
+        oldPassword: oldPass,
+        newPassword: newPass
+      })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || 'Error al actualizar la contraseña.');
     }
+    try {
+      await db.users.update(userId, { password: '' });
+    } catch {}
     this.notify();
     return true;
   }
@@ -1032,21 +1119,24 @@ class SgpManager {
   }
 
   // --- Clear / Wipe All Operational Data (Fresh Start) ---
-  public async clearAllData(options?: {
-    clearPersonal?: boolean;
-    clearExpedientes?: boolean;
-    clearFolios?: boolean;
-    clearPersonas?: boolean;
-    clearMoviles?: boolean;
-    clearReparaciones?: boolean;
-    clearRecargos?: boolean;
-    clearCharlas?: boolean;
-    clearLicencias?: boolean;
-    clearSeriesNumerario?: boolean;
-    clearDynamicCatalogs?: boolean;
-    clearDynamicFields?: boolean;
-    clearNavModulesConfig?: boolean;
-  }): Promise<void> {
+  public async clearAllData(
+    options?: {
+      clearPersonal?: boolean;
+      clearExpedientes?: boolean;
+      clearFolios?: boolean;
+      clearPersonas?: boolean;
+      clearMoviles?: boolean;
+      clearReparaciones?: boolean;
+      clearRecargos?: boolean;
+      clearCharlas?: boolean;
+      clearLicencias?: boolean;
+      clearSeriesNumerario?: boolean;
+      clearDynamicCatalogs?: boolean;
+      clearDynamicFields?: boolean;
+      clearNavModulesConfig?: boolean;
+    },
+    confirmPassword?: string
+  ): Promise<void> {
     const opts = {
       clearPersonal: true,
       clearExpedientes: true,
@@ -1064,45 +1154,51 @@ class SgpManager {
       ...options
     };
 
-    // 1. Sync with server API
-    try {
-      await fetch('/api/maintenance/clear-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
-        body: JSON.stringify(opts)
-      });
-    } catch (e) {
-      console.warn('[Dexie] Warning calling /api/maintenance/clear-all:', e);
+    // 1. Validate and execute on server API BEFORE touching local IndexedDB
+    const res = await apiFetch('/api/maintenance/clear-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...opts, confirmPassword })
+    });
+    const resBody = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(resBody.error || 'No se pudo vaciar la base de datos.');
     }
 
-    // 2. Clear IndexedDB tables
-    await db.transaction('rw', [
-      db.expedientes,
-      db.personal,
-      db.moviles,
-      db.reparaciones,
-      db.recargos,
-      db.charlas,
-      db.licencias,
-      db.personas,
-      db.foliosNumerario,
-      db.seriesNumerario,
-      db.dynamicCatalogs,
-      db.dynamicFields
-    ], async () => {
-      if (opts.clearExpedientes) await db.expedientes.clear();
-      if (opts.clearPersonal) await db.personal.clear();
-      if (opts.clearMoviles) await db.moviles.clear();
-      if (opts.clearReparaciones) await db.reparaciones.clear();
-      if (opts.clearRecargos) await db.recargos.clear();
-      if (opts.clearCharlas) await db.charlas.clear();
-      if (opts.clearLicencias) await db.licencias.clear();
-      if (opts.clearPersonas) await db.personas.clear();
-      if (opts.clearFolios) await db.foliosNumerario.clear();
-      if (opts.clearSeriesNumerario) await db.seriesNumerario.clear();
-      if (opts.clearDynamicCatalogs) await db.dynamicCatalogs.clear();
-      if (opts.clearDynamicFields) await db.dynamicFields.clear();
-    });
+    // 2. Clear IndexedDB tables with hook suppression
+    const prevSync = this.isSyncingFromServer;
+    this.isSyncingFromServer = true;
+    try {
+      await db.transaction('rw', [
+        db.expedientes,
+        db.personal,
+        db.moviles,
+        db.reparaciones,
+        db.recargos,
+        db.charlas,
+        db.licencias,
+        db.personas,
+        db.foliosNumerario,
+        db.seriesNumerario,
+        db.dynamicCatalogs,
+        db.dynamicFields
+      ], async () => {
+        if (opts.clearExpedientes) await db.expedientes.clear();
+        if (opts.clearPersonal) await db.personal.clear();
+        if (opts.clearMoviles) await db.moviles.clear();
+        if (opts.clearReparaciones) await db.reparaciones.clear();
+        if (opts.clearRecargos) await db.recargos.clear();
+        if (opts.clearCharlas) await db.charlas.clear();
+        if (opts.clearLicencias) await db.licencias.clear();
+        if (opts.clearPersonas) await db.personas.clear();
+        if (opts.clearFolios) await db.foliosNumerario.clear();
+        if (opts.clearSeriesNumerario) await db.seriesNumerario.clear();
+        if (opts.clearDynamicCatalogs) await db.dynamicCatalogs.clear();
+        if (opts.clearDynamicFields) await db.dynamicFields.clear();
+      });
+    } finally {
+      this.isSyncingFromServer = prevSync;
+    }
 
     if (opts.clearNavModulesConfig) {
       localStorage.removeItem('sispol_nav_modules');
@@ -1111,32 +1207,13 @@ class SgpManager {
     this.notify();
   }
 
-  // --- Purge Data by Period ---
-  public async purgeDataByPeriod(
+  private async purgeLocalDexieByPeriod(
     range: PeriodDateRange,
     entities: EntitySelection,
     delegacionId?: number
   ): Promise<PeriodCounts> {
     const startTime = range.startDate.getTime();
     const endTime = range.endDate.getTime();
-
-    // 1. Sync with server API
-    try {
-      await fetch('/api/maintenance/purge-period', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
-        body: JSON.stringify({
-          startTime,
-          endTime,
-          entities,
-          delegacionId
-        })
-      });
-    } catch (e) {
-      console.warn('[Dexie] Warning calling /api/maintenance/purge-period:', e);
-    }
-
-    // 2. Perform local deletion in Dexie
     const deletedCounts: PeriodCounts = {
       expedientes: 0,
       foliosNumerario: 0,
@@ -1148,103 +1225,141 @@ class SgpManager {
       total: 0
     };
 
-    await db.transaction('rw', [
-      db.expedientes,
-      db.foliosNumerario,
-      db.personas,
-      db.licencias,
-      db.recargos,
-      db.reparaciones,
-      db.charlas
-    ], async () => {
-      if (entities.expedientes) {
-        const allExp = await db.expedientes.toArray();
-        const toDelete = allExp.filter(e => {
-          if (delegacionId && e.delegacionId && e.delegacionId !== delegacionId) return false;
-          return isTimestampInPeriod(parseDateToTime(e.fechaIngreso), startTime, endTime);
-        });
-        if (toDelete.length > 0) {
-          await db.expedientes.bulkDelete(toDelete.map(e => e.id!));
-          deletedCounts.expedientes = toDelete.length;
+    const prevSync = this.isSyncingFromServer;
+    this.isSyncingFromServer = true;
+    try {
+      await db.transaction('rw', [
+        db.expedientes,
+        db.foliosNumerario,
+        db.personas,
+        db.licencias,
+        db.recargos,
+        db.reparaciones,
+        db.charlas
+      ], async () => {
+        if (entities.expedientes) {
+          const allExp = await db.expedientes.toArray();
+          const toDelete = allExp.filter(e => {
+            if (delegacionId && e.delegacionId && e.delegacionId !== delegacionId) return false;
+            return isTimestampInPeriod(parseDateToTime(e.fechaIngreso), startTime, endTime);
+          });
+          if (toDelete.length > 0) {
+            await db.expedientes.bulkDelete(toDelete.map(e => e.id!));
+            deletedCounts.expedientes = toDelete.length;
+          }
         }
-      }
 
-      if (entities.foliosNumerario) {
-        const allFolios = await db.foliosNumerario.toArray();
-        const toDelete = allFolios.filter(f => {
-          const t = parseDateToTime(f.fecha || f.fechaAsignacion) || (f.anio ? parseDateToTime(f.anio) : null);
-          return isTimestampInPeriod(t, startTime, endTime);
-        });
-        if (toDelete.length > 0) {
-          await db.foliosNumerario.bulkDelete(toDelete.map(f => f.id!));
-          deletedCounts.foliosNumerario = toDelete.length;
+        if (entities.foliosNumerario) {
+          const allFolios = await db.foliosNumerario.toArray();
+          const toDelete = allFolios.filter(f => {
+            const t = parseDateToTime(f.fecha || f.fechaAsignacion) || (f.anio ? parseDateToTime(f.anio) : null);
+            return isTimestampInPeriod(t, startTime, endTime);
+          });
+          if (toDelete.length > 0) {
+            await db.foliosNumerario.bulkDelete(toDelete.map(f => f.id!));
+            deletedCounts.foliosNumerario = toDelete.length;
+          }
         }
-      }
 
-      if (entities.personas) {
-        const allPersonas = await db.personas.toArray();
-        const toDelete = allPersonas.filter(p => {
-          if (delegacionId && p.delegacionId && p.delegacionId !== delegacionId) return false;
-          return isTimestampInPeriod(parseDateToTime(p.fechaRegistro), startTime, endTime);
-        });
-        if (toDelete.length > 0) {
-          await db.personas.bulkDelete(toDelete.map(p => p.id!));
-          deletedCounts.personas = toDelete.length;
+        if (entities.personas) {
+          const allPersonas = await db.personas.toArray();
+          const toDelete = allPersonas.filter(p => {
+            if (delegacionId && p.delegacionId && p.delegacionId !== delegacionId) return false;
+            return isTimestampInPeriod(parseDateToTime(p.fechaRegistro), startTime, endTime);
+          });
+          if (toDelete.length > 0) {
+            await db.personas.bulkDelete(toDelete.map(p => p.id!));
+            deletedCounts.personas = toDelete.length;
+          }
         }
-      }
 
-      if (entities.licencias) {
-        const allLic = await db.licencias.toArray();
-        const toDelete = allLic.filter(l => {
-          if (delegacionId && l.delegacionId && l.delegacionId !== delegacionId) return false;
-          const t = parseDateToTime(l.fechaSalida) || parseDateToTime(l.fechaIngreso) || (l.anioPeriodo ? parseDateToTime(l.anioPeriodo) : null);
-          return isTimestampInPeriod(t, startTime, endTime);
-        });
-        if (toDelete.length > 0) {
-          await db.licencias.bulkDelete(toDelete.map(l => l.id!));
-          deletedCounts.licencias = toDelete.length;
+        if (entities.licencias) {
+          const allLic = await db.licencias.toArray();
+          const toDelete = allLic.filter(l => {
+            if (delegacionId && l.delegacionId && l.delegacionId !== delegacionId) return false;
+            const t = parseDateToTime(l.fechaSalida) || parseDateToTime(l.fechaIngreso) || (l.anioPeriodo ? parseDateToTime(l.anioPeriodo) : null);
+            return isTimestampInPeriod(t, startTime, endTime);
+          });
+          if (toDelete.length > 0) {
+            await db.licencias.bulkDelete(toDelete.map(l => l.id!));
+            deletedCounts.licencias = toDelete.length;
+          }
         }
-      }
 
-      if (entities.recargos) {
-        const allRec = await db.recargos.toArray();
-        const toDelete = allRec.filter(r => {
-          if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
-          return isTimestampInPeriod(parseDateToTime(r.fecha), startTime, endTime);
-        });
-        if (toDelete.length > 0) {
-          await db.recargos.bulkDelete(toDelete.map(r => r.id!));
-          deletedCounts.recargos = toDelete.length;
+        if (entities.recargos) {
+          const allRec = await db.recargos.toArray();
+          const toDelete = allRec.filter(r => {
+            if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+            return isTimestampInPeriod(parseDateToTime(r.fecha), startTime, endTime);
+          });
+          if (toDelete.length > 0) {
+            await db.recargos.bulkDelete(toDelete.map(r => r.id!));
+            deletedCounts.recargos = toDelete.length;
+          }
         }
-      }
 
-      if (entities.reparaciones) {
-        const allRep = await db.reparaciones.toArray();
-        const toDelete = allRep.filter(r => {
-          if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
-          return isTimestampInPeriod(parseDateToTime(r.fecha), startTime, endTime);
-        });
-        if (toDelete.length > 0) {
-          await db.reparaciones.bulkDelete(toDelete.map(r => r.id!));
-          deletedCounts.reparaciones = toDelete.length;
+        if (entities.reparaciones) {
+          const allRep = await db.reparaciones.toArray();
+          const toDelete = allRep.filter(r => {
+            if (delegacionId && r.delegacionId && r.delegacionId !== delegacionId) return false;
+            return isTimestampInPeriod(parseDateToTime(r.fecha), startTime, endTime);
+          });
+          if (toDelete.length > 0) {
+            await db.reparaciones.bulkDelete(toDelete.map(r => r.id!));
+            deletedCounts.reparaciones = toDelete.length;
+          }
         }
-      }
 
-      if (entities.charlas) {
-        const allCh = await db.charlas.toArray();
-        const toDelete = allCh.filter(c => {
-          if (delegacionId && c.delegacionId && c.delegacionId !== delegacionId) return false;
-          return isTimestampInPeriod(parseDateToTime(c.fecha), startTime, endTime);
-        });
-        if (toDelete.length > 0) {
-          await db.charlas.bulkDelete(toDelete.map(c => c.id!));
-          deletedCounts.charlas = toDelete.length;
+        if (entities.charlas) {
+          const allCh = await db.charlas.toArray();
+          const toDelete = allCh.filter(c => {
+            if (delegacionId && c.delegacionId && c.delegacionId !== delegacionId) return false;
+            return isTimestampInPeriod(parseDateToTime(c.fecha), startTime, endTime);
+          });
+          if (toDelete.length > 0) {
+            await db.charlas.bulkDelete(toDelete.map(c => c.id!));
+            deletedCounts.charlas = toDelete.length;
+          }
         }
-      }
-    });
+      });
+    } finally {
+      this.isSyncingFromServer = prevSync;
+    }
 
     deletedCounts.total = deletedCounts.expedientes + deletedCounts.foliosNumerario + deletedCounts.personas +
       deletedCounts.licencias + deletedCounts.recargos + deletedCounts.reparaciones + deletedCounts.charlas;
+    return deletedCounts;
+  }
+
+  // --- Purge Data by Period ---
+  public async purgeDataByPeriod(
+    range: PeriodDateRange,
+    entities: EntitySelection,
+    delegacionId?: number,
+    confirmPassword?: string
+  ): Promise<PeriodCounts> {
+    const startTime = range.startDate.getTime();
+    const endTime = range.endDate.getTime();
+
+    // 1. Validate and execute on server API BEFORE touching local IndexedDB
+    const res = await apiFetch('/api/maintenance/purge-period', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startTime,
+        endTime,
+        entities,
+        delegacionId,
+        confirmPassword
+      })
+    });
+    const resBody = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(resBody.error || 'No se pudo depurar los registros del período.');
+    }
+
+    // 2. Perform local deletion in Dexie
+    const deletedCounts = await this.purgeLocalDexieByPeriod(range, entities, delegacionId);
 
     this.notify();
     return deletedCounts;
@@ -1261,27 +1376,27 @@ class SgpManager {
     const startTime = range.startDate.getTime();
     const endTime = range.endDate.getTime();
 
-    // 1. Sync with server API
-    try {
-      await fetch('/api/maintenance/restore-period', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
-        body: JSON.stringify({
-          startTime,
-          endTime,
-          entities,
-          mode,
-          data,
-          delegacionId
-        })
-      });
-    } catch (e) {
-      console.warn('[Dexie] Warning calling /api/maintenance/restore-period:', e);
+    // 1. Sync with server API first
+    const res = await apiFetch('/api/maintenance/restore-period', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startTime,
+        endTime,
+        entities,
+        mode,
+        data,
+        delegacionId
+      })
+    });
+    const resBody = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(resBody.error || 'No se pudo restaurar los datos del período en el servidor.');
     }
 
-    // 2. If mode === 'replace', purge existing records within this range first
+    // 2. If mode === 'replace', purge existing local Dexie records within this range first
     if (mode === 'replace') {
-      await this.purgeDataByPeriod(range, entities, delegacionId);
+      await this.purgeLocalDexieByPeriod(range, entities, delegacionId);
     }
 
     const restoredCounts: PeriodCounts = {
@@ -1295,15 +1410,18 @@ class SgpManager {
       total: 0
     };
 
-    await db.transaction('rw', [
-      db.expedientes,
-      db.foliosNumerario,
-      db.personas,
-      db.licencias,
-      db.recargos,
-      db.reparaciones,
-      db.charlas
-    ], async () => {
+    const prevSync = this.isSyncingFromServer;
+    this.isSyncingFromServer = true;
+    try {
+      await db.transaction('rw', [
+        db.expedientes,
+        db.foliosNumerario,
+        db.personas,
+        db.licencias,
+        db.recargos,
+        db.reparaciones,
+        db.charlas
+      ], async () => {
       if (entities.expedientes && data.expedientes?.length) {
         const toAdd = data.expedientes.filter(e => isTimestampInPeriod(parseDateToTime(e.fechaIngreso), startTime, endTime));
         if (toAdd.length > 0) {
@@ -1379,7 +1497,10 @@ class SgpManager {
           restoredCounts.charlas = toAdd.length;
         }
       }
-    });
+      });
+    } finally {
+      this.isSyncingFromServer = prevSync;
+    }
 
     restoredCounts.total = restoredCounts.expedientes + restoredCounts.foliosNumerario + restoredCounts.personas +
       restoredCounts.licencias + restoredCounts.recargos + restoredCounts.reparaciones + restoredCounts.charlas;
@@ -1593,17 +1714,52 @@ class SgpManager {
 
   public async addRole(role: CustomRoleDefinition): Promise<number> {
     await this.initialize();
-    const id = await db.customRoles.add({
-      ...role,
-      createdAt: new Date().toISOString()
+    const res = await apiFetch('/api/roles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(role)
     });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || 'No se pudo crear el rol.');
+    }
+    const newId = Number(body.id) || role.id;
+    const prevSync = this.isSyncingFromServer;
+    this.isSyncingFromServer = true;
+    let storedId: number;
+    try {
+      storedId = await db.customRoles.put({
+        ...role,
+        ...(newId ? { id: newId } : {}),
+        createdAt: new Date().toISOString()
+      });
+    } finally {
+      this.isSyncingFromServer = prevSync;
+    }
     this.notify();
-    return id;
+    return Number(newId || storedId);
   }
 
   public async updateRole(id: number, changes: Partial<CustomRoleDefinition>): Promise<void> {
     await this.initialize();
-    await db.customRoles.update(id, changes);
+    const existing = await db.customRoles.get(id);
+    const payload = { ...existing, ...changes, id };
+    const res = await apiFetch(`/api/roles/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || 'No se pudo actualizar el rol.');
+    }
+    const prevSync = this.isSyncingFromServer;
+    this.isSyncingFromServer = true;
+    try {
+      await db.customRoles.update(id, changes);
+    } finally {
+      this.isSyncingFromServer = prevSync;
+    }
     this.notify();
   }
 
@@ -1613,7 +1769,20 @@ class SgpManager {
     if (r?.isSystem) {
       throw new Error('No es posible eliminar roles base del sistema.');
     }
-    await db.customRoles.delete(id);
+    const res = await apiFetch(`/api/roles/${id}`, {
+      method: 'DELETE'
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || 'No se pudo eliminar el rol.');
+    }
+    const prevSync = this.isSyncingFromServer;
+    this.isSyncingFromServer = true;
+    try {
+      await db.customRoles.delete(id);
+    } finally {
+      this.isSyncingFromServer = prevSync;
+    }
     this.notify();
   }
 
@@ -1931,13 +2100,13 @@ class SgpManager {
 
   public async reiniciarNumerarioSerie(serieId: number): Promise<void> {
     await this.initialize();
-    try {
-      await fetch(`/api/numerario/series/${serieId}/reset`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuditHeaders() }
-      });
-    } catch {
-      // ignore if offline
+    const res = await apiFetch(`/api/numerario/series/${serieId}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || 'No se pudo reiniciar la serie.');
     }
     const prevSync = this.isSyncingFromServer;
     this.isSyncingFromServer = true;

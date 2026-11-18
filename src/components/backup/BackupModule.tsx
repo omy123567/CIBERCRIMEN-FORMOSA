@@ -23,7 +23,8 @@ import {
   Sparkles,
   Zap,
   Check,
-  X
+  X,
+  Lock
 } from 'lucide-react';
 import { SgpBackupData } from '../../types/sgp';
 import {
@@ -32,7 +33,7 @@ import {
   exportIndividualJson
 } from '../../utils/sgpBackupZip';
 import { saveAs } from 'file-saver';
-import { sgpManager, db, getAuditHeaders } from '../../db/dexieDb';
+import { sgpManager, db, apiFetch } from '../../db/dexieDb';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { usePermissions } from '../../context/PermissionsContext';
 import {
@@ -100,6 +101,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ success: boolean; message: string } | null>(null);
   const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
+  const [isConfirmRestorePeriodOpen, setIsConfirmRestorePeriodOpen] = useState(false);
 
   // File Inputs
   const fileInputZipRef = useRef<HTMLInputElement>(null);
@@ -107,12 +109,18 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const fileInputRestorePeriodRef = useRef<HTMLInputElement>(null);
   const singleTableInputRef = useRef<HTMLInputElement>(null);
   const [singleTableImportTarget, setSingleTableImportTarget] = useState<string | null>(null);
+  const [singleTableClearTarget, setSingleTableClearTarget] = useState<{ id: string; name: string } | null>(null);
+  const [singleTableClearPassword, setSingleTableClearPassword] = useState('');
+  const [singleTableClearError, setSingleTableClearError] = useState<string | null>(null);
+  const [isClearingSingleTable, setIsClearingSingleTable] = useState(false);
 
   // -------------------------------------------------------------
   // State for "Vaciar Todo (Iniciar Sistema Limpio)"
   // -------------------------------------------------------------
   const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [clearAllConfirmText, setClearAllConfirmText] = useState('');
+  const [clearAllPassword, setClearAllPassword] = useState('');
+  const [clearAllError, setClearAllError] = useState<string | null>(null);
   const [autoBackupBeforeClear, setAutoBackupBeforeClear] = useState(true);
   const [clearOptions, setClearOptions] = useState<ClearAllOptions>({ ...DEFAULT_CLEAR_OPTIONS });
 
@@ -160,6 +168,8 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const [autoBackupBeforePurge, setAutoBackupBeforePurge] = useState(true);
   const [showPurgeConfirmModal, setShowPurgeConfirmModal] = useState(false);
   const [purgeConfirmationText, setPurgeConfirmationText] = useState('');
+  const [purgePassword, setPurgePassword] = useState('');
+  const [purgeError, setPurgeError] = useState<string | null>(null);
 
   const purgeRange = useMemo(() => {
     return calculatePeriodRange(purgePeriod, purgeCustomStart, purgeCustomEnd);
@@ -332,21 +342,27 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const handleInitiateClearAll = () => {
     if (!canDestructiveReset) return;
     if (selectedClearCount === 0) {
-      alert('No hay módulos seleccionados o los registros ya están en 0.');
+      setStatusMessage({ success: false, message: 'No hay módulos seleccionados o los registros ya están en 0.' });
       return;
     }
     setClearAllConfirmText('');
+    setClearAllPassword('');
+    setClearAllError(null);
     setShowClearAllModal(true);
   };
 
   const handleExecuteClearAll = async () => {
     if (!canDestructiveReset) return;
+    setClearAllError(null);
     if (clearAllConfirmText.trim().toUpperCase() !== 'ELIMINAR TODO') {
-      alert('Debe escribir exactamente "ELIMINAR TODO" para confirmar el vaciado del sistema.');
+      setClearAllError('Debe escribir exactamente "ELIMINAR TODO" para confirmar el vaciado del sistema.');
+      return;
+    }
+    if (!clearAllPassword.trim()) {
+      setClearAllError('Debe ingresar su contraseña actual para autorizar esta operación crítica.');
       return;
     }
 
-    setShowClearAllModal(false);
     setIsClearingAll(true);
     setStatusMessage(null);
 
@@ -359,9 +375,11 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
         saveAs(blob, `sisdic_copia_seguridad_completa_previa_vaciado_${dateStr}.json`);
       }
 
-      // 2. Perform wipe on IndexedDB and SQLite
-      await sgpManager.clearAllData(clearOptions);
+      // 2. Validate password server-side & perform wipe on SQLite and IndexedDB
+      await sgpManager.clearAllData(clearOptions, clearAllPassword);
 
+      setShowClearAllModal(false);
+      setClearAllPassword('');
       setStatusMessage({
         success: true,
         message: `Base de datos vaciada con éxito (${selectedClearCount} registros eliminados). El sistema está completamente limpio para cargar sus propios datos reales.`
@@ -369,10 +387,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
 
       onRefresh();
     } catch (err: any) {
-      setStatusMessage({
-        success: false,
-        message: `Error al vaciar los datos: ${err.message}`
-      });
+      setClearAllError(err.message || 'Error al vaciar los datos.');
     } finally {
       setIsClearingAll(false);
     }
@@ -400,21 +415,27 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const handleInitiatePurge = () => {
     if (!canDestructiveReset) return;
     if (purgeCounts.total === 0) {
-      alert('No hay registros coincidentes para el período y módulos seleccionados.');
+      setStatusMessage({ success: false, message: 'No hay registros coincidentes para el período y módulos seleccionados.' });
       return;
     }
     setPurgeConfirmationText('');
+    setPurgePassword('');
+    setPurgeError(null);
     setShowPurgeConfirmModal(true);
   };
 
   const handleExecutePurge = async () => {
     if (!canDestructiveReset) return;
+    setPurgeError(null);
     if (purgeConfirmationText.trim().toUpperCase() !== 'CONFIRMAR') {
-      alert('Debe escribir exactamente "CONFIRMAR" para ejecutar la depuración.');
+      setPurgeError('Debe escribir exactamente "CONFIRMAR" para ejecutar la depuración.');
+      return;
+    }
+    if (!purgePassword.trim()) {
+      setPurgeError('Debe ingresar su contraseña actual para confirmar la depuración.');
       return;
     }
 
-    setShowPurgeConfirmModal(false);
     setIsPurging(true);
     setStatusMessage(null);
 
@@ -427,8 +448,10 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
         saveAs(blob, `resguardo_seguridad_previo_purga_${purgePeriod}_${dateStr}.json`);
       }
 
-      const result = await sgpManager.purgeDataByPeriod(purgeRange, purgeEntities, backupData.delegacionId);
+      const result = await sgpManager.purgeDataByPeriod(purgeRange, purgeEntities, backupData.delegacionId, purgePassword);
 
+      setShowPurgeConfirmModal(false);
+      setPurgePassword('');
       setStatusMessage({
         success: true,
         message: `Depuración completada con éxito. Se eliminaron ${result.total} registros correspondientes a: ${purgeRange.label}.`
@@ -436,10 +459,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
 
       onRefresh();
     } catch (err: any) {
-      setStatusMessage({
-        success: false,
-        message: `Error al depurar registros del período: ${err.message}`
-      });
+      setPurgeError(err.message || 'Error al depurar registros del período.');
     } finally {
       setIsPurging(false);
     }
@@ -466,28 +486,30 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
         message: `Archivo "${file.name}" cargado. Seleccione el período y módulos para restaurar.`
       });
     } catch (err: any) {
-      alert(`Error al leer archivo de respaldo: ${err.message}`);
+      setStatusMessage({
+        success: false,
+        message: `Error al leer archivo de respaldo: ${err.message}`
+      });
     }
   };
 
-  const handleExecuteRestorePeriod = async () => {
+  const handleExecuteRestorePeriod = () => {
     if (!canImport) return;
     if (!restoreFileParsed) {
-      alert('Debe cargar primero un archivo de respaldo JSON.');
+      setStatusMessage({ success: false, message: 'Debe cargar primero un archivo de respaldo JSON.' });
       return;
     }
 
     if (!restoreCounts || restoreCounts.total === 0) {
-      alert('No se encontraron registros en el archivo para el período seleccionado.');
+      setStatusMessage({ success: false, message: 'No se encontraron registros en el archivo para el período seleccionado.' });
       return;
     }
 
-    const confirmMsg = restoreMode === 'replace'
-      ? `¿ATENCIÓN: Modo Sobrescribir activado. Se eliminarán los registros actuales correspondientes a este período (${restoreRange.label}) y se reemplazarán con los del archivo (${restoreCounts.total} registros)?`
-      : `¿Confirma la restauración / fusión de ${restoreCounts.total} registros del período ${restoreRange.label}?`;
+    setIsConfirmRestorePeriodOpen(true);
+  };
 
-    if (!window.confirm(confirmMsg)) return;
-
+  const executeConfirmedRestorePeriod = async () => {
+    if (!canImport || !restoreFileParsed || !restoreCounts) return;
     setIsRestoringPeriod(true);
     setStatusMessage(null);
 
@@ -522,7 +544,7 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
   const handleExecuteExportPeriod = () => {
     if (!perms.canExport) return;
     if (exportCounts.total === 0) {
-      alert('No hay registros coincidentes para el período seleccionado.');
+      setStatusMessage({ success: false, message: 'No hay registros coincidentes para el período seleccionado.' });
       return;
     }
 
@@ -536,6 +558,61 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
       success: true,
       message: `Copia liviana descargada: ${filename} (${exportCounts.total} registros).`
     });
+  };
+
+  // -------------------------------------------------------------
+  // Handler for single-table wipe (Tab 6) with password verification
+  // -------------------------------------------------------------
+  const handleExecuteSingleTableClear = async () => {
+    if (!canDestructiveReset || !singleTableClearTarget) return;
+    setSingleTableClearError(null);
+    if (!singleTableClearPassword.trim()) {
+      setSingleTableClearError('Debe ingresar su contraseña actual para confirmar el vaciado de la tabla.');
+      return;
+    }
+
+    setIsClearingSingleTable(true);
+    try {
+      const tblId = singleTableClearTarget.id;
+      const res = await apiFetch('/api/maintenance/clear-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmPassword: singleTableClearPassword,
+          clearExpedientes: tblId === 'expedientes',
+          clearPersonal: tblId === 'personal',
+          clearFolios: tblId === 'foliosNumerario',
+          clearPersonas: tblId === 'personas',
+          clearMoviles: tblId === 'moviles',
+          clearReparaciones: tblId === 'reparaciones',
+          clearRecargos: tblId === 'recargos',
+          clearCharlas: tblId === 'charlas',
+          clearLicencias: tblId === 'licencias',
+          clearSeriesNumerario: tblId === 'seriesNumerario',
+          clearDynamicCatalogs: tblId === 'dynamicCatalogs',
+          clearDynamicFields: tblId === 'dynamicFields'
+        })
+      });
+      const resBody = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(resBody.error || 'No se pudo vaciar la tabla en el servidor.');
+      }
+
+      const table = (db as any)[tblId];
+      if (table) await table.clear();
+      sgpManager.notify();
+      onRefresh();
+      setStatusMessage({
+        success: true,
+        message: `Tabla "${singleTableClearTarget.name}" vaciada con éxito.`
+      });
+      setSingleTableClearTarget(null);
+      setSingleTableClearPassword('');
+    } catch (err: any) {
+      setSingleTableClearError(err.message || 'Error al vaciar tabla.');
+    } finally {
+      setIsClearingSingleTable(false);
+    }
   };
 
   return (
@@ -882,19 +959,42 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                   />
                 </div>
 
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-red-500" />
+                    <span>Confirme con su contraseña actual:</span>
+                  </label>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={clearAllPassword}
+                    onChange={(e) => setClearAllPassword(e.target.value)}
+                    placeholder="Contraseña de su usuario"
+                    className="w-full px-4 py-2.5 text-sm bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:border-red-500 focus:outline-hidden"
+                  />
+                </div>
+
+                {clearAllError && (
+                  <div className="p-3 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{clearAllError}</span>
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={() => setShowClearAllModal(false)}
+                    disabled={isClearingAll}
                     className="px-4 py-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
                   >
                     Cancelar
                   </button>
                   <button
                     onClick={handleExecuteClearAll}
-                    disabled={clearAllConfirmText.trim().toUpperCase() !== 'ELIMINAR TODO'}
+                    disabled={isClearingAll || clearAllConfirmText.trim().toUpperCase() !== 'ELIMINAR TODO' || !clearAllPassword.trim()}
                     className="px-6 py-2.5 text-xs font-black text-white bg-red-600 hover:bg-red-700 rounded-xl disabled:opacity-40 transition-colors shadow-lg shadow-red-950/40"
                   >
-                    Vaciar Todo Ahora
+                    {isClearingAll ? 'Verificando...' : 'Vaciar Todo Ahora'}
                   </button>
                 </div>
               </div>
@@ -1366,19 +1466,42 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                   />
                 </div>
 
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-rose-500" />
+                    <span>Confirme con su contraseña actual:</span>
+                  </label>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={purgePassword}
+                    onChange={(e) => setPurgePassword(e.target.value)}
+                    placeholder="Contraseña de su usuario"
+                    className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                {purgeError && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{purgeError}</span>
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={() => setShowPurgeConfirmModal(false)}
+                    disabled={isPurging}
                     className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 rounded-xl"
                   >
                     Cancelar
                   </button>
                   <button
                     onClick={handleExecutePurge}
-                    disabled={purgeConfirmationText.trim().toUpperCase() !== 'CONFIRMAR'}
+                    disabled={isPurging || purgeConfirmationText.trim().toUpperCase() !== 'CONFIRMAR' || !purgePassword.trim()}
                     className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl disabled:opacity-40 transition-colors"
                   >
-                    Ejecutar Depuración
+                    {isPurging ? 'Verificando...' : 'Ejecutar Depuración'}
                   </button>
                 </div>
               </div>
@@ -1884,44 +2007,10 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
 
                   {canDestructiveReset && (
                     <button
-                      onClick={async () => {
-                        if (!canDestructiveReset) return;
-                        if (!window.confirm(`¿Está seguro de que desea vaciar la tabla "${tbl.name}"? Los datos eliminados no se podrán recuperar a menos que tenga un respaldo previo.`)) {
-                          return;
-                        }
-                        try {
-                          const table = (db as any)[tbl.id];
-                          if (table) await table.clear();
-                          await fetch('/api/maintenance/clear-all', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', ...getAuditHeaders() },
-                            body: JSON.stringify({
-                              clearExpedientes: tbl.id === 'expedientes',
-                              clearPersonal: tbl.id === 'personal',
-                              clearFolios: tbl.id === 'foliosNumerario',
-                              clearPersonas: tbl.id === 'personas',
-                              clearMoviles: tbl.id === 'moviles',
-                              clearReparaciones: tbl.id === 'reparaciones',
-                              clearRecargos: tbl.id === 'recargos',
-                              clearCharlas: tbl.id === 'charlas',
-                              clearLicencias: tbl.id === 'licencias',
-                              clearSeriesNumerario: tbl.id === 'seriesNumerario',
-                              clearDynamicCatalogs: tbl.id === 'dynamicCatalogs',
-                              clearDynamicFields: tbl.id === 'dynamicFields'
-                            })
-                          });
-                          sgpManager.notify();
-                          onRefresh();
-                          setStatusMessage({
-                            success: true,
-                            message: `Tabla "${tbl.name}" vaciada con éxito.`
-                          });
-                        } catch (err: any) {
-                          setStatusMessage({
-                            success: false,
-                            message: `Error al vaciar tabla: ${err.message}`
-                          });
-                        }
+                      onClick={() => {
+                        setSingleTableClearTarget({ id: tbl.id, name: tbl.name });
+                        setSingleTableClearPassword('');
+                        setSingleTableClearError(null);
                       }}
                       className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors"
                       title="Vaciar únicamente esta tabla"
@@ -1932,6 +2021,86 @@ export const BackupModule: React.FC<BackupModuleProps> = ({ backupData, onRefres
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog for Restore Period */}
+      <ConfirmDialog
+        isOpen={isConfirmRestorePeriodOpen}
+        onClose={() => setIsConfirmRestorePeriodOpen(false)}
+        onConfirm={executeConfirmedRestorePeriod}
+        title={restoreMode === 'replace' ? 'Sobrescribir Período Seleccionado' : 'Restaurar / Fusionar Período'}
+        message={
+          restoreMode === 'replace'
+            ? `ATENCIÓN: Modo Sobrescribir activado. Se eliminarán los registros actuales correspondientes al período "${restoreRange.label}" y se reemplazarán con ${restoreCounts?.total || 0} registros del archivo.`
+            : `¿Confirma la restauración / fusión de ${restoreCounts?.total || 0} registros del período "${restoreRange.label}"?`
+        }
+        confirmText="Confirmar Restauración"
+        danger={restoreMode === 'replace'}
+      />
+
+      {/* Password Re-authentication Modal for Single Table Clear */}
+      {singleTableClearTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-900 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 text-rose-600">
+                <AlertTriangle className="w-6 h-6 shrink-0" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Vaciar Tabla: {singleTableClearTarget.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSingleTableClearTarget(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Los datos eliminados de <strong>{singleTableClearTarget.name}</strong> no se podrán recuperar a menos que tenga un respaldo previo.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-rose-500" />
+                <span>Ingrese su contraseña actual para autorizar:</span>
+              </label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={singleTableClearPassword}
+                onChange={(e) => setSingleTableClearPassword(e.target.value)}
+                placeholder="Contraseña de su usuario"
+                className="w-full px-3 py-2 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              />
+            </div>
+
+            {singleTableClearError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{singleTableClearError}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                onClick={() => setSingleTableClearTarget(null)}
+                disabled={isClearingSingleTable}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExecuteSingleTableClear}
+                disabled={isClearingSingleTable || !singleTableClearPassword.trim()}
+                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl disabled:opacity-40 transition-colors"
+              >
+                {isClearingSingleTable ? 'Vaciando...' : 'Vaciar Tabla'}
+              </button>
+            </div>
           </div>
         </div>
       )}

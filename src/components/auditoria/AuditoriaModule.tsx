@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { AuditCategory, AuditLogEntry, SisPolUser, SisPolDelegacion } from '../../types/sgp';
-import { getAuditHeaders } from '../../db/dexieDb';
+import { apiFetch } from '../../db/dexieDb';
 
 interface AuditoriaModuleProps {
   currentUser: SisPolUser;
@@ -119,11 +119,7 @@ export const AuditoriaModule: React.FC<AuditoriaModuleProps> = ({
       params.set('order', orderDir);
       params.set('limit', '1000');
 
-      const res = await fetch(`/api/audit-logs?${params.toString()}`, {
-        headers: {
-          ...getAuditHeaders()
-        }
-      });
+      const res = await apiFetch(`/api/audit-logs?${params.toString()}`);
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -168,11 +164,10 @@ export const AuditoriaModule: React.FC<AuditoriaModuleProps> = ({
     setPurging(true);
     setPurgeFeedback(null);
     try {
-      const res = await fetch('/api/audit-logs/purge-expired', {
+      const res = await apiFetch('/api/audit-logs/purge-expired', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          ...getAuditHeaders()
+          'Content-Type': 'application/json'
         }
       });
       const data = await res.json();

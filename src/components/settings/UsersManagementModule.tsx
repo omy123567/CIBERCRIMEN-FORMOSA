@@ -25,11 +25,13 @@ import {
   EyeOff,
   FilePlus2,
   RotateCcw,
-  Download
+  Download,
+  CheckCircle2
 } from 'lucide-react';
 import { SisPolUser, SisPolDelegacion, UserRole, CustomRoleDefinition } from '../../types/sgp';
-import { sgpManager } from '../../db/dexieDb';
+import { sgpManager, sanitizeClientUser } from '../../db/dexieDb';
 import { usePermissions } from '../../context/PermissionsContext';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 
 const AVAILABLE_MODULES = [
   { id: 'dashboard', label: 'Dashboard Ejecutivo', category: 'General', superuserOnly: false },
@@ -87,6 +89,10 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<{ success: boolean; message: string } | null>(null);
+  const [deleteUserConfirm, setDeleteUserConfirm] = useState<{ id: number; username: string } | null>(null);
+  const [deleteRoleConfirm, setDeleteRoleConfirm] = useState<CustomRoleDefinition | null>(null);
   const [rol, setRol] = useState<UserRole>('Operador');
   const [delegacionId, setDelegacionId] = useState<number>(delegaciones[0]?.id || 1);
   const [canCreate, setCanCreate] = useState<boolean>(true);
@@ -341,6 +347,7 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
     setEmail('');
     setUsername('');
     setPassword('');
+    setShowPassword(false);
     setRol('Operador');
     const initialDel = currentUser.delegacionId || delegaciones[0]?.id || 1;
     setDelegacionId(initialDel);
@@ -376,7 +383,8 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
     setNombreApellido(u.nombreApellido);
     setEmail(u.email);
     setUsername(u.username);
-    setPassword(u.password);
+    setPassword('');
+    setShowPassword(false);
     setRol(u.rol);
     setDelegacionId(u.delegacionId);
     setReadOnly(isRo);
@@ -409,8 +417,19 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
     if (editingUser ? !perms.canEdit : !perms.canCreate) return;
     setUserError(null);
 
-    if (!nombreApellido.trim() || !email.trim() || !username.trim() || !password.trim()) {
-      setUserError('Todos los campos son requeridos: Apellido y Nombre, Correo, Usuario y Contraseña.');
+    if (!nombreApellido.trim() || !email.trim() || !username.trim()) {
+      setUserError('Apellido y Nombre, Correo y Usuario son obligatorios.');
+      return;
+    }
+
+    const cleanPass = password.trim();
+    if (!editingUser && !cleanPass) {
+      setUserError('Debe asignar una contraseña inicial para el nuevo usuario.');
+      return;
+    }
+
+    if (cleanPass && (cleanPass.length < 8 || !/[A-Za-z]/.test(cleanPass) || !/\d/.test(cleanPass))) {
+      setUserError('La contraseña debe tener al menos 8 caracteres e incluir letras y números.');
       return;
     }
 
@@ -427,7 +446,7 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
         nombreApellido: nombreApellido.trim(),
         email: email.trim(),
         username: username.trim(),
-        password: password.trim(),
+        ...(cleanPass ? { password: cleanPass } : {}),
         rol,
         delegacionId,
         readOnly: effectiveReadOnly,
@@ -444,7 +463,7 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
       if (editingUser && editingUser.id) {
         await sgpManager.updateUser(editingUser.id, userData);
         if (editingUser.id === currentUser.id || editingUser.username === currentUser.username) {
-          const updatedCurrent = { ...currentUser, ...userData, id: editingUser.id };
+          const updatedCurrent = sanitizeClientUser({ ...currentUser, ...userData, id: editingUser.id });
           localStorage.setItem('sispol_current_user', JSON.stringify(updatedCurrent));
         }
       } else {
@@ -454,22 +473,39 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
       await loadData();
       onRefresh();
       setIsUserModalOpen(false);
+      setActionFeedback({
+        success: true,
+        message: editingUser
+          ? `Usuario "${username.trim()}" actualizado correctamente.`
+          : `Usuario "${username.trim()}" registrado correctamente.`
+      });
     } catch (err: any) {
       console.error(err);
       setUserError(err.message || 'Error al guardar el usuario.');
     }
   };
 
-  const handleDeleteUser = async (id: number, uRole: UserRole) => {
+  const handleDeleteUser = (id: number, uRole: UserRole, uname: string) => {
     if (!perms.canDelete) return;
     if (uRole === 'superusuario') {
-      alert('No es posible eliminar al Superusuario del sistema.');
+      setActionFeedback({ success: false, message: 'No es posible eliminar al Superusuario del sistema.' });
       return;
     }
-    if (!confirm('¿Confirma que desea eliminar este usuario del sistema?')) return;
-    await sgpManager.deleteUser(id);
-    await loadData();
-    onRefresh();
+    setDeleteUserConfirm({ id, username: uname });
+  };
+
+  const executeDeleteUser = async () => {
+    if (!deleteUserConfirm) return;
+    try {
+      await sgpManager.deleteUser(deleteUserConfirm.id);
+      await loadData();
+      onRefresh();
+      setActionFeedback({ success: true, message: `Usuario "${deleteUserConfirm.username}" eliminado.` });
+    } catch (err: any) {
+      setActionFeedback({ success: false, message: err?.message || 'Error al eliminar el usuario.' });
+    } finally {
+      setDeleteUserConfirm(null);
+    }
   };
 
   // Role Actions
@@ -578,20 +614,29 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
     }
   };
 
-  const handleDeleteRole = async (r: CustomRoleDefinition) => {
+  const handleDeleteRole = (r: CustomRoleDefinition) => {
     if (!perms.canDelete) return;
     if (r.isSystem) {
-      alert('Los roles base del sistema (Operador, Administrador, Superusuario) están protegidos y no pueden eliminarse.');
+      setActionFeedback({
+        success: false,
+        message: 'Los roles base del sistema (Operador, Administrador, Superusuario) están protegidos y no pueden eliminarse.'
+      });
       return;
     }
     if (!r.id) return;
-    if (!confirm(`¿Confirma que desea eliminar el rol "${r.nombre}"? Los usuarios asignados a este rol deberán ser reasignados.`)) return;
+    setDeleteRoleConfirm(r);
+  };
 
+  const executeDeleteRole = async () => {
+    if (!deleteRoleConfirm?.id) return;
     try {
-      await sgpManager.deleteRole(r.id);
+      await sgpManager.deleteRole(deleteRoleConfirm.id);
       await loadData();
+      setActionFeedback({ success: true, message: `Rol "${deleteRoleConfirm.nombre}" eliminado.` });
     } catch (err: any) {
-      alert(err.message || 'Error al eliminar el rol.');
+      setActionFeedback({ success: false, message: err?.message || 'Error al eliminar el rol.' });
+    } finally {
+      setDeleteRoleConfirm(null);
     }
   };
 
@@ -659,6 +704,28 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
           ))}
         </div>
       </div>
+
+      {actionFeedback && (
+        <div
+          className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 text-xs font-medium ${
+            actionFeedback.success
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+              : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-700 dark:text-red-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {actionFeedback.success ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0" />
+            )}
+            <span>{actionFeedback.message}</span>
+          </div>
+          <button onClick={() => setActionFeedback(null)} className="opacity-70 hover:opacity-100">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* ======================= TAB 1: USERS ======================= */}
       {activeTab === 'users' && (
@@ -906,7 +973,7 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
                           )}
                           {u.rol !== 'superusuario' && perms.canDelete && (
                             <button
-                              onClick={() => u.id && handleDeleteUser(u.id, u.rol)}
+                              onClick={() => u.id && handleDeleteUser(u.id, u.rol, u.username)}
                               className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/60 rounded-lg transition-colors"
                               title="Eliminar usuario"
                             >
@@ -1228,16 +1295,30 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Contraseña *
+                    {editingUser ? 'Nueva Contraseña (opcional)' : 'Contraseña *'}
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Clave de acceso"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-mono"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required={!editingUser}
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={editingUser ? 'Dejar vacío para mantener la actual' : 'Mín. 8 caracteres (letras y números)'}
+                      className="w-full px-3 py-2 pr-9 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Política de seguridad: mínimo 8 caracteres con al menos una letra y un número.
+                  </span>
                 </div>
 
                 <div>
@@ -1838,6 +1919,26 @@ export const UsersManagementModule: React.FC<UsersManagementModuleProps> = ({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteUserConfirm)}
+        onClose={() => setDeleteUserConfirm(null)}
+        onConfirm={executeDeleteUser}
+        title="Confirmar Eliminación de Usuario"
+        message={`¿Confirma que desea eliminar al usuario "${deleteUserConfirm?.username || ''}" del sistema? Sus sesiones activas serán revocadas inmediatamente.`}
+        confirmText="Eliminar Usuario"
+        danger={true}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteRoleConfirm)}
+        onClose={() => setDeleteRoleConfirm(null)}
+        onConfirm={executeDeleteRole}
+        title="Confirmar Eliminación de Rol"
+        message={`¿Confirma que desea eliminar el rol "${deleteRoleConfirm?.nombre || ''}"? Los usuarios asignados a este rol deberán ser reasignados.`}
+        confirmText="Eliminar Rol"
+        danger={true}
+      />
     </div>
   );
 };

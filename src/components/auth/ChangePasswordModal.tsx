@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, KeyRound, Check, AlertCircle } from 'lucide-react';
 import { SisPolUser } from '../../types/sgp';
-import { sgpManager } from '../../db/dexieDb';
+import { sgpManager, sanitizeClientUser } from '../../db/dexieDb';
 
 interface ChangePasswordModalProps {
   isOpen: boolean;
@@ -25,17 +25,26 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleClose = () => {
+    setCurrentPass('');
+    setNewPass('');
+    setConfirmPass('');
+    setError(null);
+    setSuccess(false);
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (currentPass !== currentUser.password) {
-      setError('La contraseña actual ingresada es incorrecta.');
+    if (!currentPass.trim()) {
+      setError('Debe ingresar su contraseña actual.');
       return;
     }
 
-    if (newPass.length < 4) {
-      setError('La nueva contraseña debe tener al menos 4 caracteres.');
+    if (newPass.length < 8 || !/[A-Za-z]/.test(newPass) || !/\d/.test(newPass)) {
+      setError('La nueva contraseña debe tener al menos 8 caracteres e incluir letras y números.');
       return;
     }
 
@@ -48,16 +57,16 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     try {
       if (!currentUser.id) throw new Error('ID de usuario inválido');
       await sgpManager.changePassword(currentUser.id, newPass, currentPass);
-      const updated = { ...currentUser, password: newPass };
+      const updated = sanitizeClientUser({ ...currentUser });
       localStorage.setItem('sispol_current_user', JSON.stringify(updated));
       setSuccess(true);
       setTimeout(() => {
         onPasswordChanged(updated);
-        onClose();
+        handleClose();
       }, 1200);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Error al actualizar la contraseña.');
+      setError(err?.message || 'Error al actualizar la contraseña.');
     } finally {
       setLoading(false);
     }
@@ -80,7 +89,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={handleClose} className="text-slate-400 hover:text-slate-600">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -108,6 +117,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               <input
                 type="password"
                 required
+                autoComplete="current-password"
                 value={currentPass}
                 onChange={(e) => setCurrentPass(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
@@ -122,10 +132,11 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               <input
                 type="password"
                 required
+                autoComplete="new-password"
                 value={newPass}
                 onChange={(e) => setNewPass(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
-                placeholder="Mínimo 4 caracteres"
+                placeholder="Mínimo 8 caracteres (letras y números)"
               />
             </div>
 
@@ -136,6 +147,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               <input
                 type="password"
                 required
+                autoComplete="new-password"
                 value={confirmPass}
                 onChange={(e) => setConfirmPass(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
@@ -146,7 +158,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
               >
                 Cancelar

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Lock, User, ArrowRight, ShieldCheck, KeyRound, AlertCircle, Building2, Sparkles } from 'lucide-react';
 import { SisPolUser, SisPolDelegacion } from '../../types/sgp';
-import { sgpManager } from '../../db/dexieDb';
+import { sgpManager, sanitizeClientUser } from '../../db/dexieDb';
 
 interface LoginViewProps {
   onLoginSuccess: (user: SisPolUser) => void;
@@ -27,42 +27,26 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
     const cleanPass = password.trim();
 
     try {
-      // 1. Authenticate via sgpManager (which checks server /api/auth/login and Dexie)
-      let user = await sgpManager.authenticate(cleanUser, cleanPass);
+      const result = await sgpManager.authenticate(cleanUser, cleanPass);
 
-      // 2. Direct server call backup if needed
-      if (!user) {
-        try {
-          const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: cleanUser, password: cleanPass })
-          });
-          if (res.ok) {
-            user = await res.json();
-          }
-        } catch (fetchErr) {
-          console.warn('Direct login fetch error:', fetchErr);
-        }
-      }
-
-      if (!user) {
-        setError('Credenciales incorrectas. Verifique su usuario y contraseña.');
-        setIsSubmitting(false);
+      if (result.error || !result.user) {
+        setError(result.error || 'Credenciales incorrectas. Verifique su usuario y contraseña.');
         return;
       }
 
+      const safeUser = sanitizeClientUser(result.user);
+
       // Ensure allowedModules is parsed array
-      if (typeof user.allowedModules === 'string') {
-        try { user.allowedModules = JSON.parse(user.allowedModules); } catch { user.allowedModules = []; }
+      if (typeof safeUser.allowedModules === 'string') {
+        try { safeUser.allowedModules = JSON.parse(safeUser.allowedModules); } catch { safeUser.allowedModules = []; }
       }
-      if (typeof user.allowedDelegacionIds === 'string') {
-        try { user.allowedDelegacionIds = JSON.parse(user.allowedDelegacionIds); } catch { user.allowedDelegacionIds = [user.delegacionId || 1]; }
+      if (typeof safeUser.allowedDelegacionIds === 'string') {
+        try { safeUser.allowedDelegacionIds = JSON.parse(safeUser.allowedDelegacionIds); } catch { safeUser.allowedDelegacionIds = [safeUser.delegacionId || 1]; }
       }
 
-      // Store in localStorage for persistent session
-      localStorage.setItem('sispol_current_user', JSON.stringify(user));
-      onLoginSuccess(user);
+      // Store sanitized user metadata in localStorage (session credential is in HttpOnly cookie / sessionStorage)
+      localStorage.setItem('sispol_current_user', JSON.stringify(safeUser));
+      onLoginSuccess(safeUser);
     } catch (err) {
       console.error('Error during authentication:', err);
       setError('Ocurrió un error al procesar el ingreso al sistema.');
@@ -127,6 +111,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
                 <input
                   type="text"
                   required
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Ingrese su usuario..."
@@ -146,6 +131,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, delegacion
                 <input
                   type="password"
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
